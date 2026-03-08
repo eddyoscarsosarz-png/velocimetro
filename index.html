@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Velocímetro GPS</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0c10;
+    --panel: #0f1318;
+    --accent: #00e5ff;
+    --accent2: #ff6b35;
+    --green: #39ff14;
+    --red: #ff2244;
+    --glass: rgba(255,255,255,0.04);
+    --border: rgba(0,229,255,0.15);
+  }
+
+  body {
+    background: var(--bg);
+    color: #fff;
+    font-family: 'Orbitron', monospace;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Atmospheric grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 60%, rgba(0,100,150,0.12) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 420px;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    letter-spacing: 0.3em;
+    font-size: 0.65rem;
+    color: var(--accent);
+    opacity: 0.7;
+    text-transform: uppercase;
+  }
+
+  /* Main speedometer circle */
+  .speedo-wrap {
+    position: relative;
+    width: 280px;
+    height: 280px;
+  }
+
+  .speedo-svg {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 0 20px rgba(0,229,255,0.3));
+  }
+
+  /* Arc background */
+  .arc-bg { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 18; stroke-linecap: round; }
+  .arc-fill { fill: none; stroke: var(--accent); stroke-width: 18; stroke-linecap: round;
+    transition: stroke-dashoffset 0.4s cubic-bezier(0.4,0,0.2,1), stroke 0.3s;
+    filter: drop-shadow(0 0 8px var(--accent));
+  }
+
+  .speed-value {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .speed-number {
+    font-size: 5rem;
+    font-weight: 900;
+    line-height: 1;
+    color: #fff;
+    text-shadow: 0 0 30px rgba(0,229,255,0.6), 0 0 60px rgba(0,229,255,0.2);
+    transition: all 0.3s;
+    letter-spacing: -2px;
+  }
+
+  .speed-unit {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--accent);
+    letter-spacing: 0.3em;
+    margin-top: 4px;
+  }
+
+  /* Ticks around the circle */
+  .tick { stroke: rgba(255,255,255,0.2); stroke-width: 1.5; }
+  .tick-major { stroke: rgba(0,229,255,0.5); stroke-width: 2.5; }
+  .tick-label { fill: rgba(255,255,255,0.4); font-family: 'Orbitron'; font-size: 9px; }
+
+  /* Status dot */
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 10px var(--red);
+    animation: pulse-red 1s infinite;
+    transition: all 0.5s;
+  }
+  .status-dot.active {
+    background: var(--green);
+    box-shadow: 0 0 10px var(--green);
+    animation: pulse-green 2s infinite;
+  }
+  @keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  @keyframes pulse-green { 0%,100%{opacity:1} 50%{opacity:0.7} }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 0.15em;
+  }
+
+  /* Info panels */
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .panel {
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    backdrop-filter: blur(10px);
+    transition: border-color 0.3s;
+  }
+
+  .panel:hover { border-color: rgba(0,229,255,0.4); }
+
+  .panel-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.55rem;
+    color: rgba(255,255,255,0.35);
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+  }
+
+  .panel-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.05em;
+  }
+
+  .panel-value.accent { color: var(--accent); }
+  .panel-value.accent2 { color: var(--accent2); }
+
+  /* Start button */
+  .btn-start {
+    background: transparent;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    font-family: 'Orbitron', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.3em;
+    padding: 12px 32px;
+    border-radius: 30px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 0 20px rgba(0,229,255,0.1), inset 0 0 20px rgba(0,229,255,0.05);
+  }
+
+  .btn-start::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .btn-start:hover { box-shadow: 0 0 30px rgba(0,229,255,0.4), inset 0 0 20px rgba(0,229,255,0.1); }
+  .btn-start:hover::before { opacity: 0.08; }
+  .btn-start:active { transform: scale(0.97); }
+  .btn-start.stop { border-color: var(--red); color: var(--red); box-shadow: 0 0 20px rgba(255,34,68,0.15); }
+
+  /* Error message */
+  .error-msg {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--red);
+    text-align: center;
+    letter-spacing: 0.1em;
+    opacity: 0;
+    transition: opacity 0.3s;
+    max-width: 300px;
+    line-height: 1.6;
+  }
+  .error-msg.show { opacity: 1; }
+
+  /* Accuracy bar */
+  .accuracy-bar {
+    width: 100%;
+    height: 2px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .accuracy-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--red), var(--accent));
+    border-radius: 2px;
+    transition: width 0.5s;
+    width: 0%;
+  }
+
+  /* Scan line animation */
+  @keyframes scan {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100vh); }
+  }
+  .scanline {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(transparent, rgba(0,229,255,0.06), transparent);
+    animation: scan 4s linear infinite;
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* Speed warning */
+  @keyframes warn-pulse {
+    0%,100% { border-color: rgba(255,98,53,0.2); }
+    50% { border-color: var(--accent2); box-shadow: 0 0 20px rgba(255,98,53,0.3); }
+  }
+  .warn { animation: warn-pulse 0.8s infinite; }
+
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+
+<div class="app">
+  <div class="header">▸ SISTEMA DE NAVEGACIÓN GPS ◂</div>
+
+  <!-- Circular speedometer -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+    <div class="speedo-wrap">
+      <svg class="speedo-svg" viewBox="0 0 280 280">
+        <!-- Outer glow ring -->
+        <circle cx="140" cy="140" r="128" fill="none" stroke="rgba(0,229,255,0.04)" stroke-width="1"/>
+        
+        <!-- Tick marks -->
+        <g id="ticks"></g>
+
+        <!-- Arc track -->
+        <!-- 220 degrees arc starting from bottom-left, going clockwise -->
+        <path class="arc-bg" id="arcBg"/>
+        <path class="arc-fill" id="arcFill"/>
+
+        <!-- Center decorations -->
+        <circle cx="140" cy="140" r="95" fill="rgba(0,0,0,0.6)"/>
+        <circle cx="140" cy="140" r="90" fill="none" stroke="rgba(0,229,255,0.08)" stroke-width="1"/>
+        <circle cx="140" cy="140" r="6" fill="var(--accent)" opacity="0.8"/>
+        <circle cx="140" cy="140" r="3" fill="#fff"/>
+      </svg>
+
+      <div class="speed-value">
+        <div class="speed-number" id="speedNum">0</div>
+        <div class="speed-unit">KM/H</div>
+      </div>
+    </div>
+
+    <div class="status-row">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">ESPERANDO SEÑAL GPS</span>
+    </div>
+  </div>
+
+  <!-- Info panels -->
+  <div class="panels">
+    <div class="panel" id="panelMax">
+      <div class="panel-label">VELOCIDAD MÁX</div>
+      <div class="panel-value accent2" id="maxSpeed">-- </div>
+      <div class="panel-label" style="margin-top:2px">km/h</div>
+    </div>
+    <div class="panel">
+      <div class="panel-label">PRECISIÓN GPS</div>
+      <div class="panel-value accent" id="accuracy">--</div>
+      <div class="accuracy-bar"><div class="accuracy-fill" id="accBar"></div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-label">ALTITUD</div>
+      <div class="panel-value" id="altitude">-- m</div>
+    </div>
+    <div class="panel">
+      <div class="panel-label">COORDENADAS</div>
+      <div class="panel-value" id="coords" style="font-size:0.65rem;letter-spacing:0;line-height:1.5;margin-top:2px">--<br>--</div>
+    </div>
+  </div>
+
+  <button class="btn-start" id="btnStart" onclick="toggleGPS()">⬡ INICIAR GPS</button>
+  <div class="error-msg" id="errorMsg"></div>
+</div>
+
+<script>
+  // ─── Arc geometry (220° arc) ───────────────────────────────
+  const CX = 140, CY = 140, R = 118;
+  const START_DEG = 130, END_DEG = 410; // 280° sweep
+  const MAX_SPEED = 200;
+
+  function polar(cx, cy, r, deg) {
+    const rad = (deg - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+
+  function arcPath(cx, cy, r, startDeg, endDeg) {
+    const s = polar(cx, cy, r, startDeg);
+    const e = polar(cx, cy, r, endDeg);
+    const large = (endDeg - startDeg) > 180 ? 1 : 0;
+    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
+  }
+
+  // Draw static arc track
+  document.getElementById('arcBg').setAttribute('d', arcPath(CX, CY, R, START_DEG, END_DEG));
+
+  // Draw ticks
+  const tickG = document.getElementById('ticks');
+  for (let i = 0; i <= 20; i++) {
+    const deg = START_DEG + (i / 20) * (END_DEG - START_DEG);
+    const isMajor = i % 4 === 0;
+    const rOuter = R + 14;
+    const rInner = isMajor ? R + 5 : R + 9;
+    const p1 = polar(CX, CY, rOuter, deg);
+    const p2 = polar(CX, CY, rInner, deg);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+    line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+    line.setAttribute('class', isMajor ? 'tick-major' : 'tick');
+    tickG.appendChild(line);
+
+    if (isMajor) {
+      const speed = Math.round((i / 20) * MAX_SPEED);
+      const lPos = polar(CX, CY, rOuter + 10, deg);
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', lPos.x); text.setAttribute('y', lPos.y);
+      text.setAttribute('text-anchor', 'middle'); text.setAttribute('dominant-baseline', 'middle');
+      text.setAttribute('class', 'tick-label'); text.textContent = speed;
+      tickG.appendChild(text);
+    }
+  }
+
+  // ─── GPS Logic ────────────────────────────────────────────
+  let watchId = null;
+  let maxSpeed = 0;
+  let isRunning = false;
+
+  function toggleGPS() {
+    isRunning ? stopGPS() : startGPS();
+  }
+
+  function startGPS() {
+    if (!navigator.geolocation) {
+      showError('Tu dispositivo no soporta geolocalización.');
+      return;
+    }
+
+    setStatus('BUSCANDO SEÑAL...', false);
+    document.getElementById('btnStart').textContent = '⬡ DETENER GPS';
+    document.getElementById('btnStart').classList.add('stop');
+    isRunning = true;
+
+    watchId = navigator.geolocation.watchPosition(onPosition, onError, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 10000
+    });
+  }
+
+  function stopGPS() {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = null; isRunning = false;
+    setSpeed(0);
+    maxSpeed = 0;
+    document.getElementById('maxSpeed').textContent = '--';
+    document.getElementById('altitude').textContent = '-- m';
+    document.getElementById('coords').innerHTML = '--<br>--';
+    document.getElementById('accuracy').textContent = '--';
+    document.getElementById('accBar').style.width = '0%';
+    document.getElementById('btnStart').textContent = '⬡ INICIAR GPS';
+    document.getElementById('btnStart').classList.remove('stop');
+    setStatus('GPS DETENIDO', false);
+  }
+
+  function onPosition(pos) {
+    clearError();
+    setStatus('SEÑAL ACTIVA', true);
+
+    const speedMs = pos.coords.speed || 0;
+    const speedKmh = Math.max(0, speedMs * 3.6);
+    setSpeed(speedKmh);
+
+    if (speedKmh > maxSpeed) {
+      maxSpeed = speedKmh;
+      document.getElementById('maxSpeed').textContent = maxSpeed.toFixed(1);
+    }
+
+    const acc = pos.coords.accuracy;
+    document.getElementById('accuracy').textContent = acc ? acc.toFixed(0) + ' m' : '--';
+    // accuracy bar: 0m=perfect(100%), 50m+=bad(0%)
+    const accPct = Math.max(0, Math.min(100, 100 - (acc / 50) * 100));
+    document.getElementById('accBar').style.width = accPct + '%';
+
+    const alt = pos.coords.altitude;
+    document.getElementById('altitude').textContent = alt !== null ? alt.toFixed(0) + ' m' : 'N/D';
+
+    const lat = pos.coords.latitude.toFixed(5);
+    const lon = pos.coords.longitude.toFixed(5);
+    document.getElementById('coords').innerHTML = `${lat}°<br>${lon}°`;
+  }
+
+  function onError(err) {
+    const msgs = {
+      1: 'Permiso de ubicación denegado. Habilítalo en ajustes.',
+      2: 'Señal GPS no disponible. Sal al exterior.',
+      3: 'Tiempo de espera agotado. Intenta de nuevo.'
+    };
+    showError(msgs[err.code] || 'Error desconocido.');
+    setStatus('ERROR DE SEÑAL', false);
+  }
+
+  function setSpeed(kmh) {
+    const rounded = Math.round(kmh);
+    document.getElementById('speedNum').textContent = rounded;
+
+    // Arc
+    const pct = Math.min(kmh / MAX_SPEED, 1);
+    const sweepDeg = pct * (END_DEG - START_DEG);
+    if (pct > 0.001) {
+      document.getElementById('arcFill').setAttribute('d', arcPath(CX, CY, R, START_DEG, START_DEG + sweepDeg));
+    } else {
+      document.getElementById('arcFill').setAttribute('d', '');
+    }
+
+    // Color shift: green → cyan → orange → red
+    const arcEl = document.getElementById('arcFill');
+    const panel = document.getElementById('panelMax');
+    if (kmh > 120) {
+      arcEl.style.stroke = '#ff2244';
+      arcEl.style.filter = 'drop-shadow(0 0 12px #ff2244)';
+      panel.classList.add('warn');
+    } else if (kmh > 80) {
+      arcEl.style.stroke = '#ff6b35';
+      arcEl.style.filter = 'drop-shadow(0 0 8px #ff6b35)';
+      panel.classList.remove('warn');
+    } else {
+      arcEl.style.stroke = '#00e5ff';
+      arcEl.style.filter = 'drop-shadow(0 0 8px #00e5ff)';
+      panel.classList.remove('warn');
+    }
+  }
+
+  function setStatus(text, active) {
+    document.getElementById('statusText').textContent = text;
+    document.getElementById('statusDot').className = 'status-dot' + (active ? ' active' : '');
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('errorMsg');
+    el.textContent = msg; el.classList.add('show');
+  }
+
+  function clearError() {
+    document.getElementById('errorMsg').classList.remove('show');
+  }
+</script>
+</body>
+</html>
