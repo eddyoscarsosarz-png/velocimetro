@@ -438,53 +438,132 @@ function checkNightMode(){
 checkNightMode();
 setInterval(checkNightMode,60000);
 
-// ── SEGUNDO PLANO — Audio silencioso ──────────────────────
+// ══════════════════════════════════════════════════════════
+// SEGUNDO PLANO — Sistema multicapa (4 técnicas combinadas)
+// ══════════════════════════════════════════════════════════
+
+let audioCtx=null, keepAliveNode=null, bgLoopTimer=null;
+
 function initBackgroundAudio(){
-  // Genera un AudioContext con un buffer silencioso y lo reproduce en loop
-  // Esto previene que Android suspenda el proceso del navegador
+  // TÉCNICA 1: Tono audible muy bajo (volumen 0.001) cada 20s
+  // Un buffer COMPLETAMENTE silencioso es ignorado por Android.
+  // Un tono casi inaudible (1Hz, vol 0.001) mantiene el proceso activo.
   try{
-    const AudioCtx=window.AudioContext||window.webkitAudioContext;
-    if(!AudioCtx) return;
-    const ctx=new AudioCtx();
-    const buf=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);
-    const src=ctx.createBufferSource();
-    src.buffer=buf; src.loop=true;
-    src.connect(ctx.destination);
-    src.start(0);
-    // Keep alive: desconectar y reconectar cada 25s para evitar que el sistema lo mate
-    setInterval(()=>{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC){ setPerm('permBg','fail'); return; }
+    audioCtx=new AC();
+
+    function playKeepAliveTone(){
       try{
-        const s2=ctx.createBufferSource();
-        s2.buffer=buf; s2.loop=true;
-        s2.connect(ctx.destination); s2.start(0);
-        setTimeout(()=>{ try{s2.stop();}catch(e){} },100);
+        if(audioCtx.state==='suspended') audioCtx.resume();
+        const osc=audioCtx.createOscillator();
+        const gain=audioCtx.createGain();
+        osc.frequency.value=1;       // 1 Hz — inaudible
+        gain.gain.value=0.001;        // volumen casi cero
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime+0.3);
       }catch(e){}
-    },25000);
+    }
+
+    playKeepAliveTone();
+    // Cada 20 segundos emite el tono keep-alive
+    bgLoopTimer=setInterval(playKeepAliveTone, 20000);
     setPerm('permBg','ok');
   }catch(e){
     setPerm('permBg','fail');
   }
 }
 
-// Service Worker keep-alive
+// TÉCNICA 2: speechSynthesis keep-alive
+// Android mata speechSynthesis en segundo plano PERO si se llama
+// con una utterance vacía cada 10s se mantiene el engine vivo
+let synthKeepAlive=null;
+function startSynthKeepAlive(){
+  if(synthKeepAlive) return;
+  synthKeepAlive=setInterval(()=>{
+    if(!window.speechSynthesis) return;
+    // Utterance de espacio en blanco — no produce sonido pero mantiene el engine
+    if(window.speechSynthesis.paused) window.speechSynthesis.resume();
+    // En Android Chrome 2do plano: re-crear la síntesis si se detuvo
+    if(!window.speechSynthesis.speaking && isOverLimit && isRunning){
+      const u=new SpeechSynthesisUtterance(String(Math.round(currentSpeed)));
+      u.lang='es-PE'; u.rate=1.1; u.volume=1; u.pitch=1.1;
+      window.speechSynthesis.speak(u);
+    }
+  },10000);
+}
+function stopSynthKeepAlive(){
+  if(synthKeepAlive){ clearInterval(synthKeepAlive); synthKeepAlive=null; }
+}
+
+// TÉCNICA 3: Service Worker con Periodic Sync + mensaje cada 15s
 if('serviceWorker' in navigator){
   const swCode=`
+    let ka=null;
     self.addEventListener('install',()=>self.skipWaiting());
     self.addEventListener('activate',e=>e.waitUntil(clients.claim()));
-    let keepAlive=null;
     self.addEventListener('message',msg=>{
-      if(msg.data==='start-keepalive'){
-        if(keepAlive) clearInterval(keepAlive);
-        keepAlive=setInterval(()=>{ self.clients.matchAll().then(cls=>cls.forEach(c=>c.postMessage('ping'))); },20000);
+      if(msg.data==='velolima-start'){
+        if(ka) clearInterval(ka);
+        // Ping a todos los clientes cada 15s para mantener la página activa
+        ka=setInterval(async()=>{
+          const cls=await self.clients.matchAll({includeUncontrolled:true,type:'window'});
+          cls.forEach(c=>c.postMessage({type:'sw-ping',ts:Date.now()}));
+        },15000);
       }
+      if(msg.data==='velolima-stop'){ if(ka){clearInterval(ka);ka=null;} }
     });
+    // Interceptar fetch para que el SW siga activo
+    self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>new Response('',{status:200}))));
   `;
   const swBlob=new Blob([swCode],{type:'application/javascript'});
   const swUrl=URL.createObjectURL(swBlob);
   navigator.serviceWorker.register(swUrl,{scope:'./'}).then(reg=>{
-    if(reg.active) reg.active.postMessage('start-keepalive');
-    reg.addEventListener('updatefound',()=>{ if(reg.installing) reg.installing.postMessage('start-keepalive'); });
+    // Escuchar pings del SW → re-activar síntesis si es necesario
+    navigator.serviceWorker.addEventListener('message',e=>{
+      if(e.data&&e.data.type==='sw-ping'&&isRunning&&isOverLimit){
+        if(window.speechSynthesis&&!window.speechSynthesis.speaking){
+          const u=new SpeechSynthesisUtterance(String(Math.round(currentSpeed)));
+          u.lang='es-PE'; u.rate=1.1; u.volume=1;
+          window.speechSynthesis.speak(u);
+        }
+      }
+    });
+    function sendSWMsg(msg){
+      const ctrl=navigator.serviceWorker.controller;
+      if(ctrl) ctrl.postMessage(msg);
+      else if(reg.active) reg.active.postMessage(msg);
+    }
+    window._swSendMsg=sendSWMsg;
   }).catch(()=>{});
+}
+
+// TÉCNICA 4: Notificación persistente con velocidad en tiempo real
+// Se muestra en la barra de notificaciones — visible aunque la app esté en fondo
+let persistentNotif=null;
+function updatePersistentNotif(speed, limit, road){
+  if(Notification.permission!=='granted') return;
+  try{
+    const over=speed>=limit;
+    const icon=over?'⚠️':'✅';
+    const title=over
+      ? `⚠️ EXCESO: ${Math.round(speed)} km/h (lím. ${limit})`
+      : `🚗 ${Math.round(speed)} km/h — Límite: ${limit} km/h`;
+    new Notification(title,{
+      body: road||'VeloLima GPS activo',
+      tag:'velolima-live',   // mismo tag = reemplaza la anterior (no apila)
+      renotify: over,        // solo vibra si hay exceso
+      silent: !over,         // silencioso si va bien
+      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="90">🛰️</text></svg>'
+    });
+  }catch(e){}
+}
+
+function stopPersistentNotif(){
+  // No hay API para cerrar notificaciones desde JS en Android,
+  // pero al parar simplemente dejamos de actualizar
 }
 
 // ── PERMISSIONS ───────────────────────────────────────────
@@ -505,11 +584,22 @@ async function requestWakeLock(){
       setPerm('permBg','ok');
     }catch(e){}
   }
-  // Re-adquirir wake lock al volver al primer plano
+  // Re-adquirir wake lock y re-activar síntesis al volver al primer plano
   document.addEventListener('visibilitychange',async()=>{
     if(document.visibilityState==='visible'&&isRunning){
+      // Re-adquirir wake lock
       try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
-      if(isOverLimit) speak(Math.round(currentSpeed));
+      // Re-activar AudioContext si fue suspendido
+      if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume().catch(()=>{});
+      // Re-activar síntesis si había alerta activa
+      if(isOverLimit){
+        if(window.speechSynthesis) window.speechSynthesis.cancel();
+        setTimeout(()=>speak(Math.round(currentSpeed)),300);
+      }
+    }
+    if(document.hidden&&isRunning){
+      // App va al fondo: mandar ping al SW para activarlo
+      if(window._swSendMsg) window._swSendMsg('velolima-start');
     }
   });
 }
@@ -744,22 +834,39 @@ function stopVoiceAlert(){
   if(window.speechSynthesis) window.speechSynthesis.cancel();
 }
 
-// ── BACKGROUND NOTIFICATIONS ──────────────────────────────
+// ── BACKGROUND ALERTS ─────────────────────────────────────
 function sendNotif(speed,limit){
+  // Alerta inmediata de exceso
   if(Notification.permission==='granted'){
-    try{new Notification('⚠ Velocidad excedida',{body:`Vas a ${Math.round(speed)} km/h. Límite: ${limit} km/h`,tag:'speed-alert',renotify:true});}
-    catch(e){}
+    try{
+      new Notification('🚨 VELOCIDAD EXCEDIDA',{
+        body:`Vas a ${Math.round(speed)} km/h — Límite: ${limit} km/h`,
+        tag:'velolima-alert', renotify:true, silent:false,
+        icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="90">⚠️</text></svg>'
+      });
+    }catch(e){}
   }
 }
 
+let notifUpdateTimer=null;
 function startBgAlerts(){
   if(bgNotifInterval) return;
+  // Actualizar notificación persistente cada 3 segundos con velocidad actual
   bgNotifInterval=setInterval(()=>{
+    if(!isRunning) return;
+    updatePersistentNotif(currentSpeed, speedLimit, currentRoadName||currentRoadType);
+  },3000);
+  // Notificación de exceso cada 10s si sigue por encima
+  notifUpdateTimer=setInterval(()=>{
     if(currentSpeed>=speedLimit&&isRunning) sendNotif(currentSpeed,speedLimit);
-  },12000);
+  },10000);
 }
 
-function stopBgAlerts(){if(bgNotifInterval){clearInterval(bgNotifInterval);bgNotifInterval=null;}}
+function stopBgAlerts(){
+  if(bgNotifInterval){clearInterval(bgNotifInterval);bgNotifInterval=null;}
+  if(notifUpdateTimer){clearInterval(notifUpdateTimer);notifUpdateTimer=null;}
+  stopPersistentNotif();
+}
 
 // ── HISTORIAL ─────────────────────────────────────────────
 function addHistorial(speed,limit,roadName,roadType,lat,lon){
@@ -834,7 +941,9 @@ async function startGPS(){
   await requestPermissions();
   await requestWakeLock();
   initBackgroundAudio();
+  startSynthKeepAlive();
   startBgAlerts();
+  if(window._swSendMsg) window._swSendMsg('velolima-start');
   setStatus('BUSCANDO SEÑAL...',false);
   document.getElementById('btnStart').textContent='⬡ DETENER GPS';
   document.getElementById('btnStart').classList.add('stop');
@@ -847,7 +956,9 @@ async function startGPS(){
 function stopGPS(){
   if(watchId!==null) navigator.geolocation.clearWatch(watchId);
   watchId=null; isRunning=false;
-  stopVoiceAlert(); stopBgAlerts(); clearAlertUI(); setSpeed(0);
+  stopVoiceAlert(); stopBgAlerts(); stopSynthKeepAlive(); clearAlertUI(); setSpeed(0);
+  if(window._swSendMsg) window._swSendMsg('velolima-stop');
+  if(bgLoopTimer){ clearInterval(bgLoopTimer); bgLoopTimer=null; }
   maxSpeed=0; currentHeading=null;
   document.getElementById('maxSpeed').textContent='--';
   document.getElementById('altitude').textContent='-- m';
