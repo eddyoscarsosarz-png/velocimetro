@@ -439,132 +439,116 @@ checkNightMode();
 setInterval(checkNightMode,60000);
 
 // ══════════════════════════════════════════════════════════
-// SEGUNDO PLANO — Sistema multicapa (4 técnicas combinadas)
+// SEGUNDO PLANO — Solución real para Android Chrome
+// Estrategia: MediaSession API + beep audible real + notif SO
 // ══════════════════════════════════════════════════════════
 
-let audioCtx=null, keepAliveNode=null, bgLoopTimer=null;
+let _bgAC = null;       // AudioContext global
+let _bgTimer = null;    // intervalo keep-alive
+let _bgSource = null;   // nodo de audio activo
+
+// Genera un beep REAL de 880Hz, 80ms, volumen 0.15
+// Android NO suspende procesos con audio real activo.
+// Este beep es casi inaudible a volumen normal del celular
+// pero suficiente para que el sistema lo registre.
+function _playBeep(){
+  try{
+    if(!_bgAC) return;
+    if(_bgAC.state === 'suspended') _bgAC.resume();
+    const osc = _bgAC.createOscillator();
+    const gain = _bgAC.createGain();
+    gain.gain.setValueAtTime(0.15, _bgAC.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, _bgAC.currentTime + 0.08);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    osc.connect(gain);
+    gain.connect(_bgAC.destination);
+    osc.start(_bgAC.currentTime);
+    osc.stop(_bgAC.currentTime + 0.08);
+  }catch(e){}
+}
+
+// Beep de alerta (más fuerte, 3 pulsos) para cuando excede límite
+function _playAlertBeep(){
+  try{
+    if(!_bgAC) return;
+    if(_bgAC.state === 'suspended') _bgAC.resume();
+    [0, 0.18, 0.36].forEach(delay => {
+      const osc = _bgAC.createOscillator();
+      const gain = _bgAC.createGain();
+      gain.gain.setValueAtTime(0.6, _bgAC.currentTime + delay);
+      gain.gain.exponentialRampToValueAtTime(0.001, _bgAC.currentTime + delay + 0.14);
+      osc.frequency.value = 1320;
+      osc.type = 'square';
+      osc.connect(gain);
+      gain.connect(_bgAC.destination);
+      osc.start(_bgAC.currentTime + delay);
+      osc.stop(_bgAC.currentTime + delay + 0.14);
+    });
+  }catch(e){}
+}
 
 function initBackgroundAudio(){
-  // TÉCNICA 1: Tono audible muy bajo (volumen 0.001) cada 20s
-  // Un buffer COMPLETAMENTE silencioso es ignorado por Android.
-  // Un tono casi inaudible (1Hz, vol 0.001) mantiene el proceso activo.
   try{
-    const AC=window.AudioContext||window.webkitAudioContext;
+    const AC = window.AudioContext || window.webkitAudioContext;
     if(!AC){ setPerm('permBg','fail'); return; }
-    audioCtx=new AC();
+    _bgAC = new AC();
 
-    function playKeepAliveTone(){
-      try{
-        if(audioCtx.state==='suspended') audioCtx.resume();
-        const osc=audioCtx.createOscillator();
-        const gain=audioCtx.createGain();
-        osc.frequency.value=1;       // 1 Hz — inaudible
-        gain.gain.value=0.001;        // volumen casi cero
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime+0.3);
-      }catch(e){}
+    // MediaSession API — registrar la app como "reproductor de medios"
+    // Esto le dice a Android que esta pestaña debe seguir activa en segundo plano
+    // exactamente igual que Spotify o YouTube Music
+    if('mediaSession' in navigator){
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'VeloLima GPS Activo',
+        artist: 'Velocímetro Lima',
+        album: 'Segundo plano',
+      });
+      navigator.mediaSession.playbackState = 'playing';
+      // Manejar botones de media para que Android no lo mate
+      ['play','pause','stop','seekbackward','seekforward'].forEach(action => {
+        try{ navigator.mediaSession.setActionHandler(action, ()=>{}); }catch(e){}
+      });
     }
 
-    playKeepAliveTone();
-    // Cada 20 segundos emite el tono keep-alive
-    bgLoopTimer=setInterval(playKeepAliveTone, 20000);
+    // Beep inicial para desbloquear el AudioContext (requiere gesto del usuario)
+    _playBeep();
+
+    // Keep-alive: beep cada 25s para mantener el proceso vivo en segundo plano
+    // 25s < 30s que es el timeout de Android para suspender audio inactivo
+    _bgTimer = setInterval(()=>{
+      if(_bgAC && _bgAC.state === 'suspended') _bgAC.resume();
+      _playBeep();
+    }, 25000);
+
     setPerm('permBg','ok');
   }catch(e){
     setPerm('permBg','fail');
   }
 }
 
-// TÉCNICA 2: speechSynthesis keep-alive
-// Android mata speechSynthesis en segundo plano PERO si se llama
-// con una utterance vacía cada 10s se mantiene el engine vivo
-let synthKeepAlive=null;
-function startSynthKeepAlive(){
-  if(synthKeepAlive) return;
-  synthKeepAlive=setInterval(()=>{
-    if(!window.speechSynthesis) return;
-    // Utterance de espacio en blanco — no produce sonido pero mantiene el engine
-    if(window.speechSynthesis.paused) window.speechSynthesis.resume();
-    // En Android Chrome 2do plano: re-crear la síntesis si se detuvo
-    if(!window.speechSynthesis.speaking && isOverLimit && isRunning){
-      const u=new SpeechSynthesisUtterance(String(Math.round(currentSpeed)));
-      u.lang='es-PE'; u.rate=1.1; u.volume=1; u.pitch=1.1;
-      window.speechSynthesis.speak(u);
+function stopBackgroundAudio(){
+  if(_bgTimer){ clearInterval(_bgTimer); _bgTimer = null; }
+  try{ if(_bgAC) _bgAC.suspend(); }catch(e){}
+}
+
+// visibilitychange: al volver al primer plano, reactivar todo
+document.addEventListener('visibilitychange', async () => {
+  if(document.visibilityState === 'visible' && isRunning){
+    // Reanudar AudioContext
+    if(_bgAC && _bgAC.state === 'suspended'){
+      try{ await _bgAC.resume(); }catch(e){}
     }
-  },10000);
-}
-function stopSynthKeepAlive(){
-  if(synthKeepAlive){ clearInterval(synthKeepAlive); synthKeepAlive=null; }
-}
-
-// TÉCNICA 3: Service Worker con Periodic Sync + mensaje cada 15s
-if('serviceWorker' in navigator){
-  const swCode=`
-    let ka=null;
-    self.addEventListener('install',()=>self.skipWaiting());
-    self.addEventListener('activate',e=>e.waitUntil(clients.claim()));
-    self.addEventListener('message',msg=>{
-      if(msg.data==='velolima-start'){
-        if(ka) clearInterval(ka);
-        // Ping a todos los clientes cada 15s para mantener la página activa
-        ka=setInterval(async()=>{
-          const cls=await self.clients.matchAll({includeUncontrolled:true,type:'window'});
-          cls.forEach(c=>c.postMessage({type:'sw-ping',ts:Date.now()}));
-        },15000);
-      }
-      if(msg.data==='velolima-stop'){ if(ka){clearInterval(ka);ka=null;} }
-    });
-    // Interceptar fetch para que el SW siga activo
-    self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>new Response('',{status:200}))));
-  `;
-  const swBlob=new Blob([swCode],{type:'application/javascript'});
-  const swUrl=URL.createObjectURL(swBlob);
-  navigator.serviceWorker.register(swUrl,{scope:'./'}).then(reg=>{
-    // Escuchar pings del SW → re-activar síntesis si es necesario
-    navigator.serviceWorker.addEventListener('message',e=>{
-      if(e.data&&e.data.type==='sw-ping'&&isRunning&&isOverLimit){
-        if(window.speechSynthesis&&!window.speechSynthesis.speaking){
-          const u=new SpeechSynthesisUtterance(String(Math.round(currentSpeed)));
-          u.lang='es-PE'; u.rate=1.1; u.volume=1;
-          window.speechSynthesis.speak(u);
-        }
-      }
-    });
-    function sendSWMsg(msg){
-      const ctrl=navigator.serviceWorker.controller;
-      if(ctrl) ctrl.postMessage(msg);
-      else if(reg.active) reg.active.postMessage(msg);
+    // Reactivar MediaSession
+    if('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    // Re-adquirir wake lock
+    try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+    // Si había alerta activa, relanzar voz
+    if(isOverLimit){
+      if(window.speechSynthesis) window.speechSynthesis.cancel();
+      setTimeout(()=> speak(Math.round(currentSpeed)), 400);
     }
-    window._swSendMsg=sendSWMsg;
-  }).catch(()=>{});
-}
-
-// TÉCNICA 4: Notificación persistente con velocidad en tiempo real
-// Se muestra en la barra de notificaciones — visible aunque la app esté en fondo
-let persistentNotif=null;
-function updatePersistentNotif(speed, limit, road){
-  if(Notification.permission!=='granted') return;
-  try{
-    const over=speed>=limit;
-    const icon=over?'⚠️':'✅';
-    const title=over
-      ? `⚠️ EXCESO: ${Math.round(speed)} km/h (lím. ${limit})`
-      : `🚗 ${Math.round(speed)} km/h — Límite: ${limit} km/h`;
-    new Notification(title,{
-      body: road||'VeloLima GPS activo',
-      tag:'velolima-live',   // mismo tag = reemplaza la anterior (no apila)
-      renotify: over,        // solo vibra si hay exceso
-      silent: !over,         // silencioso si va bien
-      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="90">🛰️</text></svg>'
-    });
-  }catch(e){}
-}
-
-function stopPersistentNotif(){
-  // No hay API para cerrar notificaciones desde JS en Android,
-  // pero al parar simplemente dejamos de actualizar
-}
+  }
+});
 
 // ── PERMISSIONS ───────────────────────────────────────────
 function setPerm(id,s){document.getElementById(id).className='perm-chip'+(s==='ok'?' ok':s==='fail'?' fail':'');}
@@ -580,28 +564,10 @@ async function requestPermissions(){
 async function requestWakeLock(){
   if('wakeLock' in navigator){
     try{
-      wakeLock=await navigator.wakeLock.request('screen');
+      wakeLock = await navigator.wakeLock.request('screen');
       setPerm('permBg','ok');
     }catch(e){}
   }
-  // Re-adquirir wake lock y re-activar síntesis al volver al primer plano
-  document.addEventListener('visibilitychange',async()=>{
-    if(document.visibilityState==='visible'&&isRunning){
-      // Re-adquirir wake lock
-      try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
-      // Re-activar AudioContext si fue suspendido
-      if(audioCtx&&audioCtx.state==='suspended') audioCtx.resume().catch(()=>{});
-      // Re-activar síntesis si había alerta activa
-      if(isOverLimit){
-        if(window.speechSynthesis) window.speechSynthesis.cancel();
-        setTimeout(()=>speak(Math.round(currentSpeed)),300);
-      }
-    }
-    if(document.hidden&&isRunning){
-      // App va al fondo: mandar ping al SW para activarlo
-      if(window._swSendMsg) window._swSendMsg('velolima-start');
-    }
-  });
 }
 
 // ── HAVERSINE + BEARING ───────────────────────────────────
@@ -834,38 +800,54 @@ function stopVoiceAlert(){
   if(window.speechSynthesis) window.speechSynthesis.cancel();
 }
 
-// ── BACKGROUND ALERTS ─────────────────────────────────────
-function sendNotif(speed,limit){
-  // Alerta inmediata de exceso
-  if(Notification.permission==='granted'){
+// ── BACKGROUND NOTIFICATIONS ──────────────────────────────
+function sendNotif(speed, limit){
+  // 1. Beep de alerta audible (funciona en segundo plano si AudioContext sigue vivo)
+  _playAlertBeep();
+  // 2. Notificación del sistema operativo (100% funciona en fondo)
+  if(Notification.permission === 'granted'){
     try{
-      new Notification('🚨 VELOCIDAD EXCEDIDA',{
-        body:`Vas a ${Math.round(speed)} km/h — Límite: ${limit} km/h`,
-        tag:'velolima-alert', renotify:true, silent:false,
-        icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="90">⚠️</text></svg>'
+      new Notification('🚨 EXCESO DE VELOCIDAD', {
+        body: `Vas a ${Math.round(speed)} km/h — Límite: ${limit} km/h`,
+        tag: 'velolima-alert',
+        renotify: true,
+        silent: false,
+        vibrate: [300, 100, 300, 100, 300],
       });
     }catch(e){}
   }
+  // 3. Vibración directa
+  if(navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
 }
 
-let notifUpdateTimer=null;
 function startBgAlerts(){
   if(bgNotifInterval) return;
-  // Actualizar notificación persistente cada 3 segundos con velocidad actual
-  bgNotifInterval=setInterval(()=>{
+  // Notificación persistente cada 4s visible en barra de Android
+  bgNotifInterval = setInterval(()=>{
     if(!isRunning) return;
-    updatePersistentNotif(currentSpeed, speedLimit, currentRoadName||currentRoadType);
-  },3000);
-  // Notificación de exceso cada 10s si sigue por encima
-  notifUpdateTimer=setInterval(()=>{
-    if(currentSpeed>=speedLimit&&isRunning) sendNotif(currentSpeed,speedLimit);
-  },10000);
+    if(Notification.permission === 'granted'){
+      try{
+        const over = currentSpeed >= speedLimit;
+        new Notification(
+          over ? `🚨 ${Math.round(currentSpeed)} km/h — REDUCE` : `🛰️ ${Math.round(currentSpeed)} km/h`,
+          {
+            body: `Límite: ${speedLimit} km/h · ${currentRoadName || 'VeloLima activo'}`,
+            tag: 'velolima-live',  // mismo tag → reemplaza, no apila
+            renotify: false,
+            silent: true,
+          }
+        );
+      }catch(e){}
+    }
+    // Re-emitir voz si hay exceso y speechSynthesis está callado
+    if(isOverLimit && isRunning && window.speechSynthesis && !window.speechSynthesis.speaking){
+      speak(Math.round(currentSpeed));
+    }
+  }, 4000);
 }
 
 function stopBgAlerts(){
-  if(bgNotifInterval){clearInterval(bgNotifInterval);bgNotifInterval=null;}
-  if(notifUpdateTimer){clearInterval(notifUpdateTimer);notifUpdateTimer=null;}
-  stopPersistentNotif();
+  if(bgNotifInterval){ clearInterval(bgNotifInterval); bgNotifInterval = null; }
 }
 
 // ── HISTORIAL ─────────────────────────────────────────────
@@ -941,9 +923,7 @@ async function startGPS(){
   await requestPermissions();
   await requestWakeLock();
   initBackgroundAudio();
-  startSynthKeepAlive();
   startBgAlerts();
-  if(window._swSendMsg) window._swSendMsg('velolima-start');
   setStatus('BUSCANDO SEÑAL...',false);
   document.getElementById('btnStart').textContent='⬡ DETENER GPS';
   document.getElementById('btnStart').classList.add('stop');
@@ -956,9 +936,7 @@ async function startGPS(){
 function stopGPS(){
   if(watchId!==null) navigator.geolocation.clearWatch(watchId);
   watchId=null; isRunning=false;
-  stopVoiceAlert(); stopBgAlerts(); stopSynthKeepAlive(); clearAlertUI(); setSpeed(0);
-  if(window._swSendMsg) window._swSendMsg('velolima-stop');
-  if(bgLoopTimer){ clearInterval(bgLoopTimer); bgLoopTimer=null; }
+  stopVoiceAlert(); stopBgAlerts(); stopBackgroundAudio(); clearAlertUI(); setSpeed(0);
   maxSpeed=0; currentHeading=null;
   document.getElementById('maxSpeed').textContent='--';
   document.getElementById('altitude').textContent='-- m';
