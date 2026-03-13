@@ -439,114 +439,139 @@ checkNightMode();
 setInterval(checkNightMode,60000);
 
 // ══════════════════════════════════════════════════════════
-// SEGUNDO PLANO — Solución real para Android Chrome
-// Estrategia: MediaSession API + beep audible real + notif SO
+// SEGUNDO PLANO v6 — 5 capas simultáneas
 // ══════════════════════════════════════════════════════════
+let _ac=null, _bgT=null, _bgLoop=null;
 
-let _bgAC = null;       // AudioContext global
-let _bgTimer = null;    // intervalo keep-alive
-let _bgSource = null;   // nodo de audio activo
-
-// Genera un beep REAL de 880Hz, 80ms, volumen 0.15
-// Android NO suspende procesos con audio real activo.
-// Este beep es casi inaudible a volumen normal del celular
-// pero suficiente para que el sistema lo registre.
-function _playBeep(){
+// CAPA 1: Audio real en bucle continuo (no silencioso)
+// Genera un tono de 18Hz (subsónico, no se escucha) PERO
+// el sistema de audio lo registra como stream activo y no
+// suspende el proceso. Volumen 0.01 = inaudible.
+function _startAudioLoop(){
   try{
-    if(!_bgAC) return;
-    if(_bgAC.state === 'suspended') _bgAC.resume();
-    const osc = _bgAC.createOscillator();
-    const gain = _bgAC.createGain();
-    gain.gain.setValueAtTime(0.15, _bgAC.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, _bgAC.currentTime + 0.08);
-    osc.frequency.value = 880;
-    osc.type = 'sine';
-    osc.connect(gain);
-    gain.connect(_bgAC.destination);
-    osc.start(_bgAC.currentTime);
-    osc.stop(_bgAC.currentTime + 0.08);
-  }catch(e){}
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC) return false;
+    _ac=new AC();
+    // Crear buffer de 2s con datos casi-cero (no completamente cero)
+    const buf=_ac.createBuffer(1,_ac.sampleRate*2,_ac.sampleRate);
+    const data=buf.getChannelData(0);
+    for(let i=0;i<data.length;i++) data[i]=Math.sin(2*Math.PI*18*i/_ac.sampleRate)*0.01;
+    const src=_ac.createBufferSource();
+    src.buffer=buf; src.loop=true;
+    src.connect(_ac.destination);
+    src.start(0);
+    _bgLoop=src;
+    return true;
+  }catch(e){ return false; }
 }
 
-// Beep de alerta (más fuerte, 3 pulsos) para cuando excede límite
-function _playAlertBeep(){
+// CAPA 2: MediaSession — registra como app de medios activa
+// Android trata esta pestaña como Spotify: nunca la suspende
+function _startMediaSession(){
   try{
-    if(!_bgAC) return;
-    if(_bgAC.state === 'suspended') _bgAC.resume();
-    [0, 0.18, 0.36].forEach(delay => {
-      const osc = _bgAC.createOscillator();
-      const gain = _bgAC.createGain();
-      gain.gain.setValueAtTime(0.6, _bgAC.currentTime + delay);
-      gain.gain.exponentialRampToValueAtTime(0.001, _bgAC.currentTime + delay + 0.14);
-      osc.frequency.value = 1320;
-      osc.type = 'square';
-      osc.connect(gain);
-      gain.connect(_bgAC.destination);
-      osc.start(_bgAC.currentTime + delay);
-      osc.stop(_bgAC.currentTime + delay + 0.14);
+    if(!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata=new MediaMetadata({
+      title:'VeloLima GPS',artist:'Lima Perú',album:'Velocímetro activo'
+    });
+    navigator.mediaSession.playbackState='playing';
+    ['play','pause','stop','previoustrack','nexttrack','seekbackward','seekforward'].forEach(a=>{
+      try{navigator.mediaSession.setActionHandler(a,()=>{});}catch(e){}
     });
   }catch(e){}
 }
 
-function initBackgroundAudio(){
-  try{
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if(!AC){ setPerm('permBg','fail'); return; }
-    _bgAC = new AC();
-
-    // MediaSession API — registrar la app como "reproductor de medios"
-    // Esto le dice a Android que esta pestaña debe seguir activa en segundo plano
-    // exactamente igual que Spotify o YouTube Music
-    if('mediaSession' in navigator){
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: 'VeloLima GPS Activo',
-        artist: 'Velocímetro Lima',
-        album: 'Segundo plano',
-      });
-      navigator.mediaSession.playbackState = 'playing';
-      // Manejar botones de media para que Android no lo mate
-      ['play','pause','stop','seekbackward','seekforward'].forEach(action => {
-        try{ navigator.mediaSession.setActionHandler(action, ()=>{}); }catch(e){}
-      });
+// CAPA 3: Service Worker que hace fetch real cada 20s
+// Un fetch real mantiene el SW (y con él la página) activos
+// porque el navegador no puede matar un SW con fetch pendiente
+function _startServiceWorker(){
+  if(!('serviceWorker' in navigator)) return;
+  const sw=`
+    let t=null;
+    self.addEventListener('install',()=>self.skipWaiting());
+    self.addEventListener('activate',e=>e.waitUntil(clients.claim()));
+    self.addEventListener('fetch',e=>{});
+    self.addEventListener('message',m=>{
+      if(m.data==='VL_START'){
+        if(t) clearInterval(t);
+        t=setInterval(async()=>{
+          try{
+            // Fetch real a un recurso pequeño para mantener el SW activo
+            await fetch('https://overpass-api.de/api/status',{method:'HEAD',mode:'no-cors'});
+          }catch(e){}
+          const cls=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+          cls.forEach(c=>c.postMessage({t:'ping',ts:Date.now()}));
+        },20000);
+      }
+      if(m.data==='VL_STOP'){if(t){clearInterval(t);t=null;}}
+    });
+  `;
+  const blob=new Blob([sw],{type:'application/javascript'});
+  const url=URL.createObjectURL(blob);
+  navigator.serviceWorker.register(url,{scope:'./'}).then(reg=>{
+    window._sw=reg;
+    navigator.serviceWorker.addEventListener('message',e=>{
+      if(e.data&&e.data.t==='ping'&&isRunning){
+        // SW nos hizo ping: reactivar audio y síntesis si están caídos
+        if(_ac&&_ac.state==='suspended') _ac.resume().catch(()=>{});
+        if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
+        if(isOverLimit&&!window.speechSynthesis.speaking) speak(Math.round(currentSpeed));
+      }
+    });
+    function _sendSW(msg){
+      const c=navigator.serviceWorker.controller;
+      if(c) c.postMessage(msg);
+      else if(reg.active) reg.active.postMessage(msg);
     }
+    window._sendSW=_sendSW;
+  }).catch(()=>{});
+}
 
-    // Beep inicial para desbloquear el AudioContext (requiere gesto del usuario)
-    _playBeep();
+// CAPA 4: setInterval de rescate cada 5s
+// Si algo falla, este timer intenta reactivar todo
+function _startRescueTimer(){
+  _bgT=setInterval(()=>{
+    if(!isRunning) return;
+    if(_ac&&_ac.state==='suspended') _ac.resume().catch(()=>{});
+    if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
+    // Relanzar voz si hay exceso y está callado
+    if(isOverLimit&&window.speechSynthesis&&!window.speechSynthesis.speaking){
+      speak(Math.round(currentSpeed));
+    }
+  },5000);
+}
 
-    // Keep-alive: beep cada 25s para mantener el proceso vivo en segundo plano
-    // 25s < 30s que es el timeout de Android para suspender audio inactivo
-    _bgTimer = setInterval(()=>{
-      if(_bgAC && _bgAC.state === 'suspended') _bgAC.resume();
-      _playBeep();
-    }, 25000);
-
-    setPerm('permBg','ok');
-  }catch(e){
-    setPerm('permBg','fail');
-  }
+function initBackgroundAudio(){
+  const ok=_startAudioLoop();
+  _startMediaSession();
+  _startServiceWorker();
+  _startRescueTimer();
+  if(window._sendSW) window._sendSW('VL_START');
+  setPerm('permBg', ok?'ok':'fail');
 }
 
 function stopBackgroundAudio(){
-  if(_bgTimer){ clearInterval(_bgTimer); _bgTimer = null; }
-  try{ if(_bgAC) _bgAC.suspend(); }catch(e){}
+  if(_bgT){clearInterval(_bgT);_bgT=null;}
+  try{if(_bgLoop){_bgLoop.stop();_bgLoop=null;}}catch(e){}
+  try{if(_ac){_ac.suspend();}}catch(e){}
+  if(window._sendSW) window._sendSW('VL_STOP');
+  if('mediaSession' in navigator) navigator.mediaSession.playbackState='paused';
 }
 
-// visibilitychange: al volver al primer plano, reactivar todo
-document.addEventListener('visibilitychange', async () => {
-  if(document.visibilityState === 'visible' && isRunning){
-    // Reanudar AudioContext
-    if(_bgAC && _bgAC.state === 'suspended'){
-      try{ await _bgAC.resume(); }catch(e){}
-    }
-    // Reactivar MediaSession
-    if('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-    // Re-adquirir wake lock
-    try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
-    // Si había alerta activa, relanzar voz
+// CAPA 5: visibilitychange — al volver al primer plano reactivar todo
+document.addEventListener('visibilitychange',async()=>{
+  if(!isRunning) return;
+  if(document.visibilityState==='visible'){
+    if(_ac&&_ac.state==='suspended') try{await _ac.resume();}catch(e){}
+    _startMediaSession();
+    try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
     if(isOverLimit){
       if(window.speechSynthesis) window.speechSynthesis.cancel();
-      setTimeout(()=> speak(Math.round(currentSpeed)), 400);
+      setTimeout(()=>speak(Math.round(currentSpeed)),300);
     }
+  }
+  if(document.hidden){
+    // Fondo: enviar ping al SW inmediatamente
+    if(window._sendSW) window._sendSW('VL_START');
   }
 });
 
@@ -563,10 +588,7 @@ async function requestPermissions(){
 
 async function requestWakeLock(){
   if('wakeLock' in navigator){
-    try{
-      wakeLock = await navigator.wakeLock.request('screen');
-      setPerm('permBg','ok');
-    }catch(e){}
+    try{ wakeLock=await navigator.wakeLock.request('screen'); setPerm('permBg','ok'); }catch(e){}
   }
 }
 
@@ -801,53 +823,42 @@ function stopVoiceAlert(){
 }
 
 // ── BACKGROUND NOTIFICATIONS ──────────────────────────────
-function sendNotif(speed, limit){
-  // 1. Beep de alerta audible (funciona en segundo plano si AudioContext sigue vivo)
-  _playAlertBeep();
-  // 2. Notificación del sistema operativo (100% funciona en fondo)
-  if(Notification.permission === 'granted'){
+function sendNotif(speed,limit){
+  if(Notification.permission==='granted'){
     try{
-      new Notification('🚨 EXCESO DE VELOCIDAD', {
-        body: `Vas a ${Math.round(speed)} km/h — Límite: ${limit} km/h`,
-        tag: 'velolima-alert',
-        renotify: true,
-        silent: false,
-        vibrate: [300, 100, 300, 100, 300],
+      // requireInteraction=true → la notificación NO desaparece sola
+      // Esto fuerza al sistema a mantenerla visible y activa
+      new Notification('🚨 EXCESO — '+Math.round(speed)+' km/h',{
+        body:`Límite: ${limit} km/h · Reduce la velocidad`,
+        tag:'vl-alerta', renotify:true, silent:false,
+        requireInteraction:true,
       });
     }catch(e){}
   }
-  // 3. Vibración directa
-  if(navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
+  if(navigator.vibrate) navigator.vibrate([400,100,400,100,400]);
 }
 
 function startBgAlerts(){
   if(bgNotifInterval) return;
-  // Notificación persistente cada 4s visible en barra de Android
-  bgNotifInterval = setInterval(()=>{
+  // Notificación de estado cada 4s — visible en barra de Android
+  // requireInteraction:false para que no moleste, solo informa
+  bgNotifInterval=setInterval(()=>{
     if(!isRunning) return;
-    if(Notification.permission === 'granted'){
+    if(Notification.permission==='granted'){
       try{
-        const over = currentSpeed >= speedLimit;
+        const over=currentSpeed>=speedLimit;
         new Notification(
-          over ? `🚨 ${Math.round(currentSpeed)} km/h — REDUCE` : `🛰️ ${Math.round(currentSpeed)} km/h`,
-          {
-            body: `Límite: ${speedLimit} km/h · ${currentRoadName || 'VeloLima activo'}`,
-            tag: 'velolima-live',  // mismo tag → reemplaza, no apila
-            renotify: false,
-            silent: true,
-          }
+          over?`🚨 ${Math.round(currentSpeed)} km/h EXCESO`:`🛰️ ${Math.round(currentSpeed)} km/h`,
+          { body:`Límite ${speedLimit} km/h · ${currentRoadName||'VeloLima activo'}`,
+            tag:'vl-live', renotify:false, silent:true }
         );
       }catch(e){}
     }
-    // Re-emitir voz si hay exceso y speechSynthesis está callado
-    if(isOverLimit && isRunning && window.speechSynthesis && !window.speechSynthesis.speaking){
-      speak(Math.round(currentSpeed));
-    }
-  }, 4000);
+  },4000);
 }
 
 function stopBgAlerts(){
-  if(bgNotifInterval){ clearInterval(bgNotifInterval); bgNotifInterval = null; }
+  if(bgNotifInterval){clearInterval(bgNotifInterval);bgNotifInterval=null;}
 }
 
 // ── HISTORIAL ─────────────────────────────────────────────
@@ -924,6 +935,7 @@ async function startGPS(){
   await requestWakeLock();
   initBackgroundAudio();
   startBgAlerts();
+  if(window._sendSW) window._sendSW('VL_START');
   setStatus('BUSCANDO SEÑAL...',false);
   document.getElementById('btnStart').textContent='⬡ DETENER GPS';
   document.getElementById('btnStart').classList.add('stop');
