@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>VeloLima — Diagnóstico</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #060810; color: #fff; font-family: monospace; padding: 12px; }
+h2 { color: #00e5ff; font-size: 0.85rem; letter-spacing: 0.2em; margin-bottom: 10px; text-align: center; }
+.log {
+  background: #0a0e16; border: 1px solid #1a2a3a;
+  border-radius: 8px; padding: 10px; height: 55vh;
+  overflow-y: auto; font-size: 0.62rem; line-height: 1.7;
+}
+.log p { border-bottom: 1px solid rgba(255,255,255,0.04); padding: 2px 0; }
+.ok   { color: #39ff14; }
+.warn { color: #ffd600; }
+.err  { color: #ff2244; }
+.info { color: #00e5ff; }
+.dim  { color: rgba(255,255,255,0.3); }
+.btn { display: block; width: 100%; margin-top: 10px; padding: 14px;
+  background: transparent; border: 1.5px solid #00e5ff; color: #00e5ff;
+  font-family: monospace; font-size: 0.8rem; letter-spacing: 0.2em;
+  border-radius: 30px; cursor: pointer; }
+.btn.stop { border-color: #ff2244; color: #ff2244; }
+.status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.status-box { background: #0a0e16; border: 1px solid #1a2a3a; border-radius: 8px;
+  padding: 8px 10px; font-size: 0.55rem; }
+.status-box .label { color: rgba(255,255,255,0.3); letter-spacing: 0.15em; }
+.status-box .val { font-size: 0.8rem; font-weight: bold; margin-top: 2px; }
+</style>
+</head>
+<body>
+<h2>🔬 VELOLIMA — DIAGNÓSTICO DE SEGUNDO PLANO</h2>
+
+<div class="status-grid">
+  <div class="status-box">
+    <div class="label">GPS</div>
+    <div class="val" id="st-gps" style="color:#ff2244">INACTIVO</div>
+  </div>
+  <div class="status-box">
+    <div class="label">AUDIO CTX</div>
+    <div class="val" id="st-audio" style="color:#ff2244">—</div>
+  </div>
+  <div class="status-box">
+    <div class="label">APP ESTADO</div>
+    <div class="val" id="st-vis" style="color:#ffd600">PRIMER PLANO</div>
+  </div>
+  <div class="status-box">
+    <div class="label">TICK COUNTER</div>
+    <div class="val" id="st-tick" style="color:#00e5ff">0</div>
+  </div>
+  <div class="status-box">
+    <div class="label">GPS UPDATES</div>
+    <div class="val" id="st-gpscount" style="color:#00e5ff">0</div>
+  </div>
+  <div class="status-box">
+    <div class="label">VOZ</div>
+    <div class="val" id="st-voice" style="color:#ff2244">—</div>
+  </div>
+</div>
+
+<div class="log" id="logBox"></div>
+<button class="btn" id="btnStart" onclick="toggle()">▶ INICIAR DIAGNÓSTICO</button>
+
+<script>
+let running = false;
+let watchId = null;
+let tickCount = 0;
+let gpsCount = 0;
+let tickTimer = null;
+let audioCtx = null;
+let beepTimer = null;
+let wakeLock = null;
+
+function log(msg, cls='dim'){
+  const box = document.getElementById('logBox');
+  const t = new Date();
+  const ts = t.getHours().toString().padStart(2,'0') + ':' +
+             t.getMinutes().toString().padStart(2,'0') + ':' +
+             t.getSeconds().toString().padStart(2,'0');
+  const p = document.createElement('p');
+  p.className = cls;
+  p.textContent = `[${ts}] ${msg}`;
+  box.appendChild(p);
+  box.scrollTop = box.scrollHeight;
+  // Guardar en localStorage para recuperar después de volver al fondo
+  try {
+    const logs = JSON.parse(localStorage.getItem('vl_logs') || '[]');
+    logs.push({ts, msg, cls});
+    if(logs.length > 100) logs.shift();
+    localStorage.setItem('vl_logs', JSON.stringify(logs));
+  } catch(e){}
+}
+
+function setSt(id, val, color){
+  const el = document.getElementById(id);
+  el.textContent = val;
+  el.style.color = color || '#fff';
+}
+
+// ── TICK PRINCIPAL ─────────────────────────────────────────
+// Este intervalo de 1s nos dice si JavaScript sigue corriendo en fondo
+function startTick(){
+  tickTimer = setInterval(() => {
+    tickCount++;
+    document.getElementById('st-tick').textContent = tickCount;
+    // Cada 5 ticks, registrar en log
+    if(tickCount % 5 === 0){
+      const hidden = document.hidden;
+      log(`TICK ${tickCount} | ${hidden ? '🌙 FONDO' : '☀️ FRENTE'} | audio=${audioCtx ? audioCtx.state : 'null'}`, hidden ? 'warn' : 'dim');
+    }
+  }, 1000);
+}
+
+// ── AUDIO ──────────────────────────────────────────────────
+function initAudio(){
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC){ log('❌ AudioContext NO disponible', 'err'); return; }
+    audioCtx = new AC();
+    log(`✅ AudioContext creado — estado: ${audioCtx.state}`, 'ok');
+    setSt('st-audio', audioCtx.state.toUpperCase(), '#39ff14');
+
+    // Registrar MediaSession
+    if('mediaSession' in navigator){
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'VeloLima Diagnóstico',
+        artist: 'GPS Activo',
+        album: 'Diagnóstico'
+      });
+      navigator.mediaSession.playbackState = 'playing';
+      ['play','pause','stop','seekbackward','seekforward','previoustrack','nexttrack']
+        .forEach(a => { try{ navigator.mediaSession.setActionHandler(a, ()=>{}); }catch(e){} });
+      log('✅ MediaSession registrada', 'ok');
+    } else {
+      log('⚠️ MediaSession NO disponible', 'warn');
+    }
+
+    playBeep();
+    log('🔊 Primer beep emitido', 'info');
+
+    // Beep cada 20s para mantener vivo
+    beepTimer = setInterval(() => {
+      playBeep();
+      setSt('st-audio', audioCtx ? audioCtx.state.toUpperCase() : 'NULL',
+        audioCtx && audioCtx.state === 'running' ? '#39ff14' : '#ff2244');
+      log(`🔊 Beep keep-alive | audio=${audioCtx ? audioCtx.state : 'null'} | fondo=${document.hidden}`, 'info');
+    }, 20000);
+
+  } catch(e){
+    log('❌ Error AudioContext: ' + e.message, 'err');
+    setSt('st-audio', 'ERROR', '#ff2244');
+  }
+}
+
+function playBeep(){
+  try {
+    if(!audioCtx) return;
+    if(audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => _doBeep()).catch(()=>{});
+    } else {
+      _doBeep();
+    }
+  } catch(e){}
+}
+
+function _doBeep(){
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.1);
+  } catch(e){ log('❌ beep error: ' + e.message, 'err'); }
+}
+
+// ── GPS ────────────────────────────────────────────────────
+function startGPS(){
+  if(!navigator.geolocation){
+    log('❌ Geolocalización NO disponible', 'err');
+    setSt('st-gps', 'NO SOPORTADO', '#ff2244');
+    return;
+  }
+  log('🛰️ Iniciando GPS watchPosition...', 'info');
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      gpsCount++;
+      document.getElementById('st-gpscount').textContent = gpsCount;
+      const kmh = Math.max(0, (pos.coords.speed || 0) * 3.6);
+      const hidden = document.hidden;
+      log(`📍 GPS #${gpsCount} | ${kmh.toFixed(1)} km/h | acc=${pos.coords.accuracy?.toFixed(0)}m | ${hidden ? '🌙 FONDO' : '☀️ FRENTE'}`,
+        hidden ? 'warn' : 'ok');
+      setSt('st-gps', `${kmh.toFixed(0)} km/h`, '#39ff14');
+    },
+    err => {
+      log(`❌ GPS error ${err.code}: ${err.message}`, 'err');
+      setSt('st-gps', 'ERROR ' + err.code, '#ff2244');
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+  );
+}
+
+// ── WAKE LOCK ──────────────────────────────────────────────
+async function getWakeLock(){
+  if('wakeLock' in navigator){
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      log('✅ Wake Lock adquirido — pantalla no se apagará', 'ok');
+    } catch(e){
+      log('⚠️ Wake Lock falló: ' + e.message, 'warn');
+    }
+  } else {
+    log('⚠️ Wake Lock NO disponible en este navegador', 'warn');
+  }
+}
+
+// ── NOTIFICACIONES ─────────────────────────────────────────
+async function setupNotif(){
+  if(!('Notification' in window)){
+    log('❌ Notificaciones NO disponibles', 'err');
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if(perm === 'granted'){
+    log('✅ Notificaciones: PERMITIDAS', 'ok');
+    new Notification('VeloLima Diagnóstico iniciado', {
+      body: 'El diagnóstico está corriendo. Minimiza la app.',
+      tag: 'vl-diag', silent: false
+    });
+  } else {
+    log('❌ Notificaciones DENEGADAS — habilítalas en ajustes', 'err');
+  }
+}
+
+// ── VISIBILITYCHANGE ───────────────────────────────────────
+document.addEventListener('visibilitychange', async () => {
+  const hidden = document.hidden;
+  if(hidden){
+    log('🌙 APP FUE AL FONDO', 'warn');
+    setSt('st-vis', 'SEGUNDO PLANO', '#ffd600');
+    // Notificar que app va al fondo
+    if(Notification.permission === 'granted'){
+      new Notification('🌙 VeloLima al fondo', {
+        body: `Tick: ${tickCount} | GPS: ${gpsCount} | Audio: ${audioCtx?.state}`,
+        tag: 'vl-bg', silent: true
+      });
+    }
+  } else {
+    log('☀️ APP VOLVIÓ AL FRENTE — recuperando estado...', 'info');
+    setSt('st-vis', 'PRIMER PLANO', '#39ff14');
+    // Recuperar audio
+    if(audioCtx && audioCtx.state === 'suspended'){
+      try {
+        await audioCtx.resume();
+        log('✅ AudioContext reanudado', 'ok');
+      } catch(e){
+        log('❌ No se pudo reanudar AudioContext: ' + e.message, 'err');
+      }
+    }
+    // Recuperar wake lock
+    if(running && 'wakeLock' in navigator){
+      try { wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+    }
+    // Recuperar MediaSession
+    if('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    // Mostrar logs guardados mientras estaba en fondo
+    try {
+      const logs = JSON.parse(localStorage.getItem('vl_logs') || '[]');
+      const recientes = logs.slice(-5);
+      log(`📋 Últimas ${recientes.length} entradas mientras estabas en fondo:`, 'info');
+    } catch(e){}
+  }
+});
+
+// ── VOZ ────────────────────────────────────────────────────
+function testVoz(){
+  if(!window.speechSynthesis){
+    log('❌ SpeechSynthesis NO disponible', 'err');
+    setSt('st-voice', 'NO SOPORTADO', '#ff2244');
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance('Diagnóstico activo. Velocímetro Lima.');
+  u.lang = 'es-PE'; u.rate = 1.1; u.volume = 1;
+  u.onstart = () => { log('🔊 Voz iniciada', 'ok'); setSt('st-voice', 'HABLANDO', '#39ff14'); };
+  u.onend = () => { log('🔊 Voz terminó', 'dim'); setSt('st-voice', 'OK', '#39ff14'); };
+  u.onerror = (e) => { log('❌ Voz error: ' + e.error, 'err'); setSt('st-voice', 'ERROR', '#ff2244'); };
+  window.speechSynthesis.speak(u);
+}
+
+// ── TOGGLE ─────────────────────────────────────────────────
+async function toggle(){
+  if(running) return stop();
+  running = true;
+  document.getElementById('btnStart').textContent = '⏹ DETENER';
+  document.getElementById('btnStart').className = 'btn stop';
+  localStorage.removeItem('vl_logs');
+
+  log('═══ INICIANDO DIAGNÓSTICO ═══', 'info');
+  log(`Dispositivo: ${navigator.userAgent.substring(0, 60)}`, 'dim');
+  log(`Hora: ${new Date().toLocaleString('es-PE')}`, 'dim');
+
+  await setupNotif();
+  await getWakeLock();
+  initAudio();
+  startGPS();
+  startTick();
+  testVoz();
+
+  log('─── Ahora MINIMIZA la app y espera 30 segundos ───', 'warn');
+  log('─── Luego vuelve y verás qué siguió funcionando ───', 'warn');
+}
+
+function stop(){
+  running = false;
+  if(watchId) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if(tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+  if(beepTimer) { clearInterval(beepTimer); beepTimer = null; }
+  if(audioCtx) { audioCtx.suspend(); }
+  document.getElementById('btnStart').textContent = '▶ INICIAR DIAGNÓSTICO';
+  document.getElementById('btnStart').className = 'btn';
+  log('═══ DIAGNÓSTICO DETENIDO ═══', 'err');
+  setSt('st-gps', 'INACTIVO', '#ff2244');
+}
+
+log('Listo. Presiona INICIAR para comenzar el diagnóstico.', 'info');
+log('INSTRUCCIONES:', 'warn');
+log('1. Presiona INICIAR y acepta todos los permisos', 'dim');
+log('2. Espera que el GPS tenga señal (verás GPS #1, #2...)', 'dim');
+log('3. Minimiza la app y abre otra aplicación', 'dim');
+log('4. Espera 30-60 segundos', 'dim');
+log('5. Vuelve a VeloLima y mira qué dejó de funcionar', 'dim');
+</script>
+</body>
+</html>
