@@ -746,17 +746,42 @@ function stopVoiceAlert(){
 
 // ── BACKGROUND NOTIFICATIONS ──────────────────────────────
 function sendNotif(speed,limit){
-  if(Notification.permission==='granted'){
-    try{new Notification('⚠ Velocidad excedida',{body:`Vas a ${Math.round(speed)} km/h. Límite: ${limit} km/h`,tag:'speed-alert',renotify:true});}
-    catch(e){}
-  }
+  if(Notification.permission!=='granted') return;
+  try{
+    // Notificación de ALERTA — con sonido del sistema y vibración
+    new Notification('🚨 EXCESO DE VELOCIDAD',{
+      body:`Vas a ${Math.round(speed)} km/h — Límite: ${limit} km/h`,
+      tag:'velolima-alert',
+      renotify:true,
+      silent:false,        // ← CON sonido del sistema
+      vibrate:[400,100,400,100,400],
+    });
+  }catch(e){}
+  if(navigator.vibrate) navigator.vibrate([400,100,400,100,400]);
 }
 
 function startBgAlerts(){
   if(bgNotifInterval) return;
+  // Notificación INFO cada 4s — silenciosa, solo muestra velocidad actual
   bgNotifInterval=setInterval(()=>{
-    if(currentSpeed>=speedLimit&&isRunning) sendNotif(currentSpeed,speedLimit);
-  },12000);
+    if(!isRunning||Notification.permission!=='granted') return;
+    const over=currentSpeed>=speedLimit;
+    try{
+      new Notification(
+        over ? `🚨 ${Math.round(currentSpeed)} km/h — REDUCE VELOCIDAD` : `🛰️ ${Math.round(currentSpeed)} km/h`,
+        {
+          body:`Límite: ${speedLimit} km/h · ${currentRoadName||'VeloLima activo'}`,
+          tag:'velolima-live',   // mismo tag → reemplaza, no apila
+          renotify:false,
+          silent:true,           // ← SIN sonido (es solo info)
+        }
+      );
+    }catch(e){}
+    // Si hay exceso activo y speechSynthesis está callado → relanzar voz
+    if(isOverLimit&&isRunning&&window.speechSynthesis&&!window.speechSynthesis.speaking){
+      speak(Math.round(currentSpeed));
+    }
+  },4000);
 }
 
 function stopBgAlerts(){if(bgNotifInterval){clearInterval(bgNotifInterval);bgNotifInterval=null;}}
@@ -829,48 +854,6 @@ function switchTab(id){
 // ── GPS ───────────────────────────────────────────────────
 function toggleGPS(){isRunning?stopGPS():startGPS();}
 
-// ── GPS WATCHDOG ──────────────────────────────────────────
-// Problema confirmado: Android mata watchPosition en ~60-90s en segundo plano
-// aunque el JS siga vivo. Solución: watchdog que detecta GPS muerto y lo reinicia.
-let _gpsWatchdog = null;
-let _lastGpsTime = 0;
-const GPS_TIMEOUT_MS = 8000; // si no hay GPS en 8s → reiniciar
-
-function _startWatchdog(){
-  if(_gpsWatchdog) return;
-  _lastGpsTime = Date.now();
-  _gpsWatchdog = setInterval(()=>{
-    if(!isRunning) return;
-    const elapsed = Date.now() - _lastGpsTime;
-    if(elapsed > GPS_TIMEOUT_MS){
-      // GPS murió → matar el watch actual y reiniciar
-      _restartGPSWatch();
-    }
-  }, 3000); // revisar cada 3s
-}
-
-function _stopWatchdog(){
-  if(_gpsWatchdog){ clearInterval(_gpsWatchdog); _gpsWatchdog = null; }
-}
-
-function _restartGPSWatch(){
-  // Limpiar watch muerto
-  if(watchId !== null){
-    try{ navigator.geolocation.clearWatch(watchId); }catch(e){}
-    watchId = null;
-  }
-  // Pequeña pausa antes de reiniciar (evita ciclo rápido)
-  setTimeout(()=>{
-    if(!isRunning) return;
-    setStatus('RECONECTANDO GPS...', false);
-    watchId = navigator.geolocation.watchPosition(
-      onPosition, onError,
-      {enableHighAccuracy:true, maximumAge:1000, timeout:15000}
-    );
-    _lastGpsTime = Date.now(); // reset timer
-  }, 500);
-}
-
 async function startGPS(){
   if(!navigator.geolocation){showError('Tu dispositivo no soporta geolocalización.');return;}
   await requestPermissions();
@@ -882,14 +865,11 @@ async function startGPS(){
   document.getElementById('btnStart').classList.add('stop');
   setPerm('permGPS','ok');
   isRunning=true;
-  _lastGpsTime = Date.now();
-  watchId=navigator.geolocation.watchPosition(onPosition, onError,
-    {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
-  _startWatchdog();
+  watchId=navigator.geolocation.watchPosition(onPosition,onError,
+    {enableHighAccuracy:true,maximumAge:0,timeout:10000});
 }
 
 function stopGPS(){
-  _stopWatchdog();
   if(watchId!==null) navigator.geolocation.clearWatch(watchId);
   watchId=null; isRunning=false;
   stopVoiceAlert(); stopBgAlerts(); clearAlertUI(); setSpeed(0);
@@ -906,9 +886,6 @@ function stopGPS(){
 
 let lastPos=null;
 function onPosition(pos){
-  // Alimentar el watchdog — GPS sigue vivo
-  _lastGpsTime = Date.now();
-
   clearError(); setStatus('SEÑAL ACTIVA',true);
   const kmh=Math.max(0,(pos.coords.speed||0)*3.6);
   currentSpeed=kmh; setSpeed(kmh);
@@ -974,18 +951,8 @@ function onPosition(pos){
 }
 
 function onError(err){
-  // Error 3 = TIMEOUT → es normal en segundo plano, reiniciar silenciosamente
-  if(err.code === 3 && isRunning){
-    setStatus('RECONECTANDO...', false);
-    _restartGPSWatch();
-    return;
-  }
-  // Error 1 = permiso denegado, Error 2 = no disponible → mostrar al usuario
-  const m={1:'Permiso denegado. Habilita ubicación.',2:'Señal GPS no disponible.'};
-  showError(m[err.code]||'Error GPS — reconectando...');
-  setStatus('ERROR DE SEÑAL',false); setPerm('permGPS','fail');
-  // Intentar reconectar igual
-  if(isRunning) setTimeout(()=>_restartGPSWatch(), 3000);
+  const m={1:'Permiso denegado. Habilita ubicación.',2:'Señal GPS no disponible.',3:'Tiempo agotado.'};
+  showError(m[err.code]||'Error desconocido.'); setStatus('ERROR DE SEÑAL',false); setPerm('permGPS','fail');
 }
 
 // ── UI ────────────────────────────────────────────────────
