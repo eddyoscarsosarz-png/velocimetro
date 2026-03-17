@@ -438,142 +438,54 @@ function checkNightMode(){
 checkNightMode();
 setInterval(checkNightMode,60000);
 
-// ══════════════════════════════════════════════════════════
-// SEGUNDO PLANO v6 — 5 capas simultáneas
-// ══════════════════════════════════════════════════════════
-let _ac=null, _bgT=null, _bgLoop=null;
-
-// CAPA 1: Audio real en bucle continuo (no silencioso)
-// Genera un tono de 18Hz (subsónico, no se escucha) PERO
-// el sistema de audio lo registra como stream activo y no
-// suspende el proceso. Volumen 0.01 = inaudible.
-function _startAudioLoop(){
+// ── SEGUNDO PLANO — Audio silencioso ──────────────────────
+function initBackgroundAudio(){
+  // Genera un AudioContext con un buffer silencioso y lo reproduce en loop
+  // Esto previene que Android suspenda el proceso del navegador
   try{
-    const AC=window.AudioContext||window.webkitAudioContext;
-    if(!AC) return false;
-    _ac=new AC();
-    // Crear buffer de 2s con datos casi-cero (no completamente cero)
-    const buf=_ac.createBuffer(1,_ac.sampleRate*2,_ac.sampleRate);
-    const data=buf.getChannelData(0);
-    for(let i=0;i<data.length;i++) data[i]=Math.sin(2*Math.PI*18*i/_ac.sampleRate)*0.01;
-    const src=_ac.createBufferSource();
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;
+    if(!AudioCtx) return;
+    const ctx=new AudioCtx();
+    const buf=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);
+    const src=ctx.createBufferSource();
     src.buffer=buf; src.loop=true;
-    src.connect(_ac.destination);
+    src.connect(ctx.destination);
     src.start(0);
-    _bgLoop=src;
-    return true;
-  }catch(e){ return false; }
+    // Keep alive: desconectar y reconectar cada 25s para evitar que el sistema lo mate
+    setInterval(()=>{
+      try{
+        const s2=ctx.createBufferSource();
+        s2.buffer=buf; s2.loop=true;
+        s2.connect(ctx.destination); s2.start(0);
+        setTimeout(()=>{ try{s2.stop();}catch(e){} },100);
+      }catch(e){}
+    },25000);
+    setPerm('permBg','ok');
+  }catch(e){
+    setPerm('permBg','fail');
+  }
 }
 
-// CAPA 2: MediaSession — registra como app de medios activa
-// Android trata esta pestaña como Spotify: nunca la suspende
-function _startMediaSession(){
-  try{
-    if(!('mediaSession' in navigator)) return;
-    navigator.mediaSession.metadata=new MediaMetadata({
-      title:'VeloLima GPS',artist:'Lima Perú',album:'Velocímetro activo'
-    });
-    navigator.mediaSession.playbackState='playing';
-    ['play','pause','stop','previoustrack','nexttrack','seekbackward','seekforward'].forEach(a=>{
-      try{navigator.mediaSession.setActionHandler(a,()=>{});}catch(e){}
-    });
-  }catch(e){}
-}
-
-// CAPA 3: Service Worker que hace fetch real cada 20s
-// Un fetch real mantiene el SW (y con él la página) activos
-// porque el navegador no puede matar un SW con fetch pendiente
-function _startServiceWorker(){
-  if(!('serviceWorker' in navigator)) return;
-  const sw=`
-    let t=null;
+// Service Worker keep-alive
+if('serviceWorker' in navigator){
+  const swCode=`
     self.addEventListener('install',()=>self.skipWaiting());
     self.addEventListener('activate',e=>e.waitUntil(clients.claim()));
-    self.addEventListener('fetch',e=>{});
-    self.addEventListener('message',m=>{
-      if(m.data==='VL_START'){
-        if(t) clearInterval(t);
-        t=setInterval(async()=>{
-          try{
-            // Fetch real a un recurso pequeño para mantener el SW activo
-            await fetch('https://overpass-api.de/api/status',{method:'HEAD',mode:'no-cors'});
-          }catch(e){}
-          const cls=await self.clients.matchAll({type:'window',includeUncontrolled:true});
-          cls.forEach(c=>c.postMessage({t:'ping',ts:Date.now()}));
-        },20000);
+    let keepAlive=null;
+    self.addEventListener('message',msg=>{
+      if(msg.data==='start-keepalive'){
+        if(keepAlive) clearInterval(keepAlive);
+        keepAlive=setInterval(()=>{ self.clients.matchAll().then(cls=>cls.forEach(c=>c.postMessage('ping'))); },20000);
       }
-      if(m.data==='VL_STOP'){if(t){clearInterval(t);t=null;}}
     });
   `;
-  const blob=new Blob([sw],{type:'application/javascript'});
-  const url=URL.createObjectURL(blob);
-  navigator.serviceWorker.register(url,{scope:'./'}).then(reg=>{
-    window._sw=reg;
-    navigator.serviceWorker.addEventListener('message',e=>{
-      if(e.data&&e.data.t==='ping'&&isRunning){
-        // SW nos hizo ping: reactivar audio y síntesis si están caídos
-        if(_ac&&_ac.state==='suspended') _ac.resume().catch(()=>{});
-        if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
-        if(isOverLimit&&!window.speechSynthesis.speaking) speak(Math.round(currentSpeed));
-      }
-    });
-    function _sendSW(msg){
-      const c=navigator.serviceWorker.controller;
-      if(c) c.postMessage(msg);
-      else if(reg.active) reg.active.postMessage(msg);
-    }
-    window._sendSW=_sendSW;
+  const swBlob=new Blob([swCode],{type:'application/javascript'});
+  const swUrl=URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swUrl,{scope:'./'}).then(reg=>{
+    if(reg.active) reg.active.postMessage('start-keepalive');
+    reg.addEventListener('updatefound',()=>{ if(reg.installing) reg.installing.postMessage('start-keepalive'); });
   }).catch(()=>{});
 }
-
-// CAPA 4: setInterval de rescate cada 5s
-// Si algo falla, este timer intenta reactivar todo
-function _startRescueTimer(){
-  _bgT=setInterval(()=>{
-    if(!isRunning) return;
-    if(_ac&&_ac.state==='suspended') _ac.resume().catch(()=>{});
-    if('mediaSession' in navigator) navigator.mediaSession.playbackState='playing';
-    // Relanzar voz si hay exceso y está callado
-    if(isOverLimit&&window.speechSynthesis&&!window.speechSynthesis.speaking){
-      speak(Math.round(currentSpeed));
-    }
-  },5000);
-}
-
-function initBackgroundAudio(){
-  const ok=_startAudioLoop();
-  _startMediaSession();
-  _startServiceWorker();
-  _startRescueTimer();
-  if(window._sendSW) window._sendSW('VL_START');
-  setPerm('permBg', ok?'ok':'fail');
-}
-
-function stopBackgroundAudio(){
-  if(_bgT){clearInterval(_bgT);_bgT=null;}
-  try{if(_bgLoop){_bgLoop.stop();_bgLoop=null;}}catch(e){}
-  try{if(_ac){_ac.suspend();}}catch(e){}
-  if(window._sendSW) window._sendSW('VL_STOP');
-  if('mediaSession' in navigator) navigator.mediaSession.playbackState='paused';
-}
-
-// CAPA 5: visibilitychange — al volver al primer plano reactivar todo
-document.addEventListener('visibilitychange',async()=>{
-  if(!isRunning) return;
-  if(document.visibilityState==='visible'){
-    if(_ac&&_ac.state==='suspended') try{await _ac.resume();}catch(e){}
-    _startMediaSession();
-    try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
-    if(isOverLimit){
-      if(window.speechSynthesis) window.speechSynthesis.cancel();
-      setTimeout(()=>speak(Math.round(currentSpeed)),300);
-    }
-  }
-  if(document.hidden){
-    // Fondo: enviar ping al SW inmediatamente
-    if(window._sendSW) window._sendSW('VL_START');
-  }
-});
 
 // ── PERMISSIONS ───────────────────────────────────────────
 function setPerm(id,s){document.getElementById(id).className='perm-chip'+(s==='ok'?' ok':s==='fail'?' fail':'');}
@@ -588,8 +500,18 @@ async function requestPermissions(){
 
 async function requestWakeLock(){
   if('wakeLock' in navigator){
-    try{ wakeLock=await navigator.wakeLock.request('screen'); setPerm('permBg','ok'); }catch(e){}
+    try{
+      wakeLock=await navigator.wakeLock.request('screen');
+      setPerm('permBg','ok');
+    }catch(e){}
   }
+  // Re-adquirir wake lock al volver al primer plano
+  document.addEventListener('visibilitychange',async()=>{
+    if(document.visibilityState==='visible'&&isRunning){
+      try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
+      if(isOverLimit) speak(Math.round(currentSpeed));
+    }
+  });
 }
 
 // ── HAVERSINE + BEARING ───────────────────────────────────
@@ -825,41 +747,19 @@ function stopVoiceAlert(){
 // ── BACKGROUND NOTIFICATIONS ──────────────────────────────
 function sendNotif(speed,limit){
   if(Notification.permission==='granted'){
-    try{
-      // requireInteraction=true → la notificación NO desaparece sola
-      // Esto fuerza al sistema a mantenerla visible y activa
-      new Notification('🚨 EXCESO — '+Math.round(speed)+' km/h',{
-        body:`Límite: ${limit} km/h · Reduce la velocidad`,
-        tag:'vl-alerta', renotify:true, silent:false,
-        requireInteraction:true,
-      });
-    }catch(e){}
+    try{new Notification('⚠ Velocidad excedida',{body:`Vas a ${Math.round(speed)} km/h. Límite: ${limit} km/h`,tag:'speed-alert',renotify:true});}
+    catch(e){}
   }
-  if(navigator.vibrate) navigator.vibrate([400,100,400,100,400]);
 }
 
 function startBgAlerts(){
   if(bgNotifInterval) return;
-  // Notificación de estado cada 4s — visible en barra de Android
-  // requireInteraction:false para que no moleste, solo informa
   bgNotifInterval=setInterval(()=>{
-    if(!isRunning) return;
-    if(Notification.permission==='granted'){
-      try{
-        const over=currentSpeed>=speedLimit;
-        new Notification(
-          over?`🚨 ${Math.round(currentSpeed)} km/h EXCESO`:`🛰️ ${Math.round(currentSpeed)} km/h`,
-          { body:`Límite ${speedLimit} km/h · ${currentRoadName||'VeloLima activo'}`,
-            tag:'vl-live', renotify:false, silent:true }
-        );
-      }catch(e){}
-    }
-  },4000);
+    if(currentSpeed>=speedLimit&&isRunning) sendNotif(currentSpeed,speedLimit);
+  },12000);
 }
 
-function stopBgAlerts(){
-  if(bgNotifInterval){clearInterval(bgNotifInterval);bgNotifInterval=null;}
-}
+function stopBgAlerts(){if(bgNotifInterval){clearInterval(bgNotifInterval);bgNotifInterval=null;}}
 
 // ── HISTORIAL ─────────────────────────────────────────────
 function addHistorial(speed,limit,roadName,roadType,lat,lon){
@@ -929,26 +829,70 @@ function switchTab(id){
 // ── GPS ───────────────────────────────────────────────────
 function toggleGPS(){isRunning?stopGPS():startGPS();}
 
+// ── GPS WATCHDOG ──────────────────────────────────────────
+// Problema confirmado: Android mata watchPosition en ~60-90s en segundo plano
+// aunque el JS siga vivo. Solución: watchdog que detecta GPS muerto y lo reinicia.
+let _gpsWatchdog = null;
+let _lastGpsTime = 0;
+const GPS_TIMEOUT_MS = 8000; // si no hay GPS en 8s → reiniciar
+
+function _startWatchdog(){
+  if(_gpsWatchdog) return;
+  _lastGpsTime = Date.now();
+  _gpsWatchdog = setInterval(()=>{
+    if(!isRunning) return;
+    const elapsed = Date.now() - _lastGpsTime;
+    if(elapsed > GPS_TIMEOUT_MS){
+      // GPS murió → matar el watch actual y reiniciar
+      _restartGPSWatch();
+    }
+  }, 3000); // revisar cada 3s
+}
+
+function _stopWatchdog(){
+  if(_gpsWatchdog){ clearInterval(_gpsWatchdog); _gpsWatchdog = null; }
+}
+
+function _restartGPSWatch(){
+  // Limpiar watch muerto
+  if(watchId !== null){
+    try{ navigator.geolocation.clearWatch(watchId); }catch(e){}
+    watchId = null;
+  }
+  // Pequeña pausa antes de reiniciar (evita ciclo rápido)
+  setTimeout(()=>{
+    if(!isRunning) return;
+    setStatus('RECONECTANDO GPS...', false);
+    watchId = navigator.geolocation.watchPosition(
+      onPosition, onError,
+      {enableHighAccuracy:true, maximumAge:1000, timeout:15000}
+    );
+    _lastGpsTime = Date.now(); // reset timer
+  }, 500);
+}
+
 async function startGPS(){
   if(!navigator.geolocation){showError('Tu dispositivo no soporta geolocalización.');return;}
   await requestPermissions();
   await requestWakeLock();
   initBackgroundAudio();
   startBgAlerts();
-  if(window._sendSW) window._sendSW('VL_START');
   setStatus('BUSCANDO SEÑAL...',false);
   document.getElementById('btnStart').textContent='⬡ DETENER GPS';
   document.getElementById('btnStart').classList.add('stop');
   setPerm('permGPS','ok');
   isRunning=true;
-  watchId=navigator.geolocation.watchPosition(onPosition,onError,
-    {enableHighAccuracy:true,maximumAge:0,timeout:10000});
+  _lastGpsTime = Date.now();
+  watchId=navigator.geolocation.watchPosition(onPosition, onError,
+    {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
+  _startWatchdog();
 }
 
 function stopGPS(){
+  _stopWatchdog();
   if(watchId!==null) navigator.geolocation.clearWatch(watchId);
   watchId=null; isRunning=false;
-  stopVoiceAlert(); stopBgAlerts(); stopBackgroundAudio(); clearAlertUI(); setSpeed(0);
+  stopVoiceAlert(); stopBgAlerts(); clearAlertUI(); setSpeed(0);
   maxSpeed=0; currentHeading=null;
   document.getElementById('maxSpeed').textContent='--';
   document.getElementById('altitude').textContent='-- m';
@@ -962,6 +906,9 @@ function stopGPS(){
 
 let lastPos=null;
 function onPosition(pos){
+  // Alimentar el watchdog — GPS sigue vivo
+  _lastGpsTime = Date.now();
+
   clearError(); setStatus('SEÑAL ACTIVA',true);
   const kmh=Math.max(0,(pos.coords.speed||0)*3.6);
   currentSpeed=kmh; setSpeed(kmh);
@@ -1027,8 +974,18 @@ function onPosition(pos){
 }
 
 function onError(err){
-  const m={1:'Permiso denegado. Habilita ubicación.',2:'Señal GPS no disponible.',3:'Tiempo agotado.'};
-  showError(m[err.code]||'Error desconocido.'); setStatus('ERROR DE SEÑAL',false); setPerm('permGPS','fail');
+  // Error 3 = TIMEOUT → es normal en segundo plano, reiniciar silenciosamente
+  if(err.code === 3 && isRunning){
+    setStatus('RECONECTANDO...', false);
+    _restartGPSWatch();
+    return;
+  }
+  // Error 1 = permiso denegado, Error 2 = no disponible → mostrar al usuario
+  const m={1:'Permiso denegado. Habilita ubicación.',2:'Señal GPS no disponible.'};
+  showError(m[err.code]||'Error GPS — reconectando...');
+  setStatus('ERROR DE SEÑAL',false); setPerm('permGPS','fail');
+  // Intentar reconectar igual
+  if(isRunning) setTimeout(()=>_restartGPSWatch(), 3000);
 }
 
 // ── UI ────────────────────────────────────────────────────
