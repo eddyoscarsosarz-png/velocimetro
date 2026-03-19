@@ -510,8 +510,30 @@ async function requestWakeLock(){
     if(document.visibilityState==='visible'&&isRunning){
       try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
       if(isOverLimit) speak(Math.round(currentSpeed));
+      // Forzar actualización inmediata de UI con último dato conocido
+      setSpeed(currentSpeed);
     }
   });
+}
+
+// ── UI REFRESH LOOP ───────────────────────────────────────
+// El DOM se congela cuando la app vuelve del fondo hasta que llega
+// el próximo onPosition (puede tardar ~1s). Este loop actualiza
+// la pantalla con el último valor conocido cada 500ms.
+let _uiRefreshTimer = null;
+
+function startUIRefresh(){
+  if(_uiRefreshTimer) return;
+  _uiRefreshTimer = setInterval(()=>{
+    if(!isRunning) return;
+    // Solo actualizar si la app está visible (evita trabajo innecesario en fondo)
+    if(document.visibilityState !== 'visible') return;
+    setSpeed(currentSpeed);
+  }, 500);
+}
+
+function stopUIRefresh(){
+  if(_uiRefreshTimer){ clearInterval(_uiRefreshTimer); _uiRefreshTimer = null; }
 }
 
 // ── HAVERSINE + BEARING ───────────────────────────────────
@@ -746,42 +768,17 @@ function stopVoiceAlert(){
 
 // ── BACKGROUND NOTIFICATIONS ──────────────────────────────
 function sendNotif(speed,limit){
-  if(Notification.permission!=='granted') return;
-  try{
-    // Notificación de ALERTA — con sonido del sistema y vibración
-    new Notification('🚨 EXCESO DE VELOCIDAD',{
-      body:`Vas a ${Math.round(speed)} km/h — Límite: ${limit} km/h`,
-      tag:'velolima-alert',
-      renotify:true,
-      silent:false,        // ← CON sonido del sistema
-      vibrate:[400,100,400,100,400],
-    });
-  }catch(e){}
-  if(navigator.vibrate) navigator.vibrate([400,100,400,100,400]);
+  if(Notification.permission==='granted'){
+    try{new Notification('⚠ Velocidad excedida',{body:`Vas a ${Math.round(speed)} km/h. Límite: ${limit} km/h`,tag:'speed-alert',renotify:true});}
+    catch(e){}
+  }
 }
 
 function startBgAlerts(){
   if(bgNotifInterval) return;
-  // Notificación INFO cada 4s — silenciosa, solo muestra velocidad actual
   bgNotifInterval=setInterval(()=>{
-    if(!isRunning||Notification.permission!=='granted') return;
-    const over=currentSpeed>=speedLimit;
-    try{
-      new Notification(
-        over ? `🚨 ${Math.round(currentSpeed)} km/h — REDUCE VELOCIDAD` : `🛰️ ${Math.round(currentSpeed)} km/h`,
-        {
-          body:`Límite: ${speedLimit} km/h · ${currentRoadName||'VeloLima activo'}`,
-          tag:'velolima-live',   // mismo tag → reemplaza, no apila
-          renotify:false,
-          silent:true,           // ← SIN sonido (es solo info)
-        }
-      );
-    }catch(e){}
-    // Si hay exceso activo y speechSynthesis está callado → relanzar voz
-    if(isOverLimit&&isRunning&&window.speechSynthesis&&!window.speechSynthesis.speaking){
-      speak(Math.round(currentSpeed));
-    }
-  },4000);
+    if(currentSpeed>=speedLimit&&isRunning) sendNotif(currentSpeed,speedLimit);
+  },12000);
 }
 
 function stopBgAlerts(){if(bgNotifInterval){clearInterval(bgNotifInterval);bgNotifInterval=null;}}
@@ -860,6 +857,7 @@ async function startGPS(){
   await requestWakeLock();
   initBackgroundAudio();
   startBgAlerts();
+  startUIRefresh();
   setStatus('BUSCANDO SEÑAL...',false);
   document.getElementById('btnStart').textContent='⬡ DETENER GPS';
   document.getElementById('btnStart').classList.add('stop');
@@ -872,7 +870,7 @@ async function startGPS(){
 function stopGPS(){
   if(watchId!==null) navigator.geolocation.clearWatch(watchId);
   watchId=null; isRunning=false;
-  stopVoiceAlert(); stopBgAlerts(); clearAlertUI(); setSpeed(0);
+  stopVoiceAlert(); stopBgAlerts(); stopUIRefresh(); clearAlertUI(); setSpeed(0);
   maxSpeed=0; currentHeading=null;
   document.getElementById('maxSpeed').textContent='--';
   document.getElementById('altitude').textContent='-- m';
