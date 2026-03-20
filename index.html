@@ -505,11 +505,21 @@ async function requestWakeLock(){
       setPerm('permBg','ok');
     }catch(e){}
   }
-  // Re-adquirir wake lock al volver al primer plano
-  document.addEventListener('visibilitychange',async()=>{
-    if(document.visibilityState==='visible'&&isRunning){
-      try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
-      if(isOverLimit) speak(Math.round(currentSpeed));
+  // Al volver al primer plano: forzar actualización inmediata del velocímetro
+  document.addEventListener('visibilitychange', async()=>{
+    if(document.visibilityState === 'visible' && isRunning){
+      // 1. Re-adquirir wake lock
+      try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+      // 2. Reanudar AudioContext si fue suspendido
+      if(_bgAC && _bgAC.state === 'suspended') try{ await _bgAC.resume(); }catch(e){}
+      // 3. FORZAR actualización inmediata del velocímetro con el último dato conocido
+      //    No esperar al próximo onPosition — puede tardar segundos
+      setSpeed(currentSpeed);
+      // 4. Si hay exceso activo, relanzar voz
+      if(isOverLimit){
+        if(window.speechSynthesis) window.speechSynthesis.cancel();
+        setTimeout(()=> speak(Math.round(currentSpeed)), 300);
+      }
     }
   });
 }
@@ -571,24 +581,22 @@ async function queryOSM(lat,lon,heading){
       }
     }
 
-    // Consultar zonas especiales en radio 400m (suficiente para avisar desde 300m)
-    // Incluir: colegios, universidades, institutos, hospitales, postas, clínicas
-    const zq=`[out:json][timeout:8];(
-      node(around:400,${lat},${lon})[amenity~"school|kindergarten|college|university"];
-      node(around:400,${lat},${lon})[amenity~"hospital|clinic|doctors|nursing_home|health_post|pharmacy"];
-      node(around:400,${lat},${lon})[amenity~"childcare|social_facility"];
-      node(around:400,${lat},${lon})[healthcare~"hospital|clinic|centre|doctor"];
-      way(around:400,${lat},${lon})[amenity~"school|kindergarten|college|university"];
-      way(around:400,${lat},${lon})[amenity~"hospital|clinic|doctors|nursing_home|health_post"];
-      way(around:400,${lat},${lon})[healthcare~"hospital|clinic|centre"];
-    );out center tags;`;
+    // Consultar zonas especiales en radio 300m
+    // Incluir también: institute, nido/jardin = kindergarten
+    const zq=`[out:json][timeout:6];(
+      node(around:300,${lat},${lon})[amenity~"school|kindergarten|college|university|institute"];
+      node(around:300,${lat},${lon})[amenity~"hospital|clinic|doctors|nursing_home"];
+      way(around:300,${lat},${lon})[amenity~"school|kindergarten|college|university|institute"];
+      way(around:300,${lat},${lon})[amenity~"hospital|clinic|doctors|nursing_home"];
+    );out center;`;
     const zd=await (await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(zq)}`)).json();
 
     if(zd.elements&&zd.elements.length>0){
+      // Guardar todas las zonas con su posición para cálculo direccional
       zonasPendientes=zd.elements.map(el=>({
         lat: el.lat||(el.center&&el.center.lat)||lat,
         lon: el.lon||(el.center&&el.center.lon)||lon,
-        amenity: el.tags&&(el.tags.amenity||el.tags.healthcare)||'school',
+        amenity: el.tags&&el.tags.amenity||'school',
         name: el.tags&&(el.tags.name||el.tags['name:es'])||''
       }));
     } else {
@@ -602,29 +610,15 @@ async function queryOSM(lat,lon,heading){
 }
 
 // ── EVALUACIÓN DIRECCIONAL DE ZONAS ──────────────────────
-// ETAPAS:
-//  300m → aparece barra radar (aviso visual)
-//  100m → aviso de voz "Colegio a 100 metros, reduce velocidad"
-//   50m → activa límite 30 km/h
-//   fuera de rango o de espaldas → desactiva
-
-let _zonaVozAvisada = false; // para no repetir el aviso de 100m
-
-function getZonaTipo(amenity){
-  const SALUD = ['hospital','clinic','doctors','nursing_home','health_post','pharmacy','centre','doctor','childcare','social_facility'];
-  const EDUC  = ['school','kindergarten','college','university','childcare'];
-  if(EDUC.includes(amenity))  return {tipo:'COLEGIO',    icon:'🏫', voz:'colegio'};
-  if(SALUD.includes(amenity)) return {tipo:'CENTRO SALUD', icon:'🏥', voz:'centro de salud'};
-  return {tipo:'ZONA ESPECIAL', icon:'⚠️', voz:'zona especial'};
-}
-
 function evaluarZonasDireccionales(lat,lon,heading){
   if(zonasPendientes.length===0){
     if(isInZone) deactivateZone();
     document.getElementById('radarBar').classList.remove('show');
-    _zonaVozAvisada = false;
     return;
   }
+
+  // Si no tenemos heading (quieto), usar radio de 80m como zona activa
+  const efectiveHeading = heading !== null ? heading : null;
 
   let zonaAdelante=null, distanciaMin=Infinity;
 
@@ -633,8 +627,9 @@ function evaluarZonasDireccionales(lat,lon,heading){
     const bear=bearing(lat,lon,z.lat,z.lon);
 
     let estaAdelante=true;
-    if(heading!==null && currentSpeed>3){
-      const diff=Math.abs(angleDiff(heading,bear));
+    if(efectiveHeading!==null && currentSpeed>3){
+      // Solo considera zona si está dentro de ±100° de nuestra dirección
+      const diff=Math.abs(angleDiff(efectiveHeading,bear));
       estaAdelante= diff<=100;
     }
 
@@ -644,47 +639,28 @@ function evaluarZonasDireccionales(lat,lon,heading){
     }
   }
 
-  // ── DENTRO DE 300m y adelante ─────────────────────────
-  if(zonaAdelante && distanciaMin<=300){
-    const {tipo,icon,voz}=getZonaTipo(zonaAdelante.amenity);
+  if(zonaAdelante && distanciaMin<=250){
+    // Zona adelante y dentro de 250m → activar radar predictivo
+    const isSchool=['school','kindergarten','college','university','institute'].includes(zonaAdelante.amenity);
+    const icon=isSchool?'🏫':'🏥';
+    const tipo=isSchool?'COLEGIO':'HOSPITAL';
     const nombre=zonaAdelante.name||tipo;
-    const dist=Math.round(distanciaMin);
 
-    // Radar bar — siempre visible desde 300m
+    // Radar bar
+    const radarBar=document.getElementById('radarBar');
     document.getElementById('radarLabel').textContent=`${icon} ${nombre.toUpperCase()} ADELANTE`;
-    document.getElementById('radarDist').textContent=dist+' m';
-    // Barra: llena a 300m, vacía a 0m (regresiva = cuanto más cerca más llena)
-    const pct=Math.max(5,Math.min(100,100-(distanciaMin/300)*100));
+    document.getElementById('radarDist').textContent=Math.round(distanciaMin)+' m';
+    const pct=Math.max(5,Math.min(100,(distanciaMin/250)*100));
     document.getElementById('radarFill').style.width=pct+'%';
-    document.getElementById('radarBar').classList.add('show');
+    radarBar.classList.add('show');
 
-    // ── AVISO DE VOZ a 100m (una sola vez) ──────────────
-    if(distanciaMin<=100 && !_zonaVozAvisada){
-      _zonaVozAvisada=true;
-      speak(`Atención. ${voz} a ${dist} metros. Reduce velocidad a 30 kilómetros.`);
-      vibrar([200,80,200,80,200]);
-      // Mostrar banner de aviso previo
-      const banner=document.getElementById('bannerZone');
-      banner.textContent=`${icon} ${nombre.toUpperCase()} A ${dist}M — REDUCE A 30 KM/H`;
-      banner.classList.add('show');
-      setTimeout(()=>banner.classList.remove('show'),5000);
-    }
-
-    // ── ACTIVAR LÍMITE 30 a 50m ──────────────────────────
-    if(distanciaMin<=50){
+    // Activar zona si estamos a ≤150m
+    if(distanciaMin<=150){
       if(!isInZone||zoneType!==tipo) activateZone(tipo,icon,30,nombre);
-    } else if(distanciaMin>80 && isInZone && zoneType===tipo){
-      // Si nos alejamos más de 80m del punto → desactivar
-      deactivateZone();
     }
-
-    // Reset aviso de voz si nos alejamos (para que suene de nuevo si volvemos)
-    if(distanciaMin>120) _zonaVozAvisada=false;
-
   } else {
-    // Fuera de 300m o zona detrás → limpiar todo
+    // No hay zona adelante O ya pasamos → desactivar
     document.getElementById('radarBar').classList.remove('show');
-    _zonaVozAvisada=false;
     if(isInZone) deactivateZone();
   }
 }
@@ -707,12 +683,15 @@ function activateZone(type,icon,limit,nombre){
   document.getElementById('zoneName').textContent=nombre||type;
   document.getElementById('zoneLimitText').textContent=limit;
   document.getElementById('zoneCard').classList.add('show');
+  document.getElementById('bannerZone').textContent=`${icon} ZONA ${nombre||type} — LÍMITE ${limit} KM/H`;
+  document.getElementById('bannerZone').classList.add('show');
   updateRoadUI(nombre||type,currentRoadType,limit,true);
-  // Voz ya se dio a 100m — aquí solo vibrar al entrar al límite
-  vibrar([300,100,300]);
+  speak(`Atención. ${type}. Límite ${limit} kilómetros.`);
+  vibrar([200,100,200,100,200]);
   setTimeout(()=>{
+    document.getElementById('bannerZone').classList.remove('show');
     document.getElementById('zoneCard').classList.remove('show');
-  },5000);
+  },7000);
 }
 
 function deactivateZone(){
@@ -781,6 +760,21 @@ function sendNotif(speed,limit){
     try{new Notification('⚠ Velocidad excedida',{body:`Vas a ${Math.round(speed)} km/h. Límite: ${limit} km/h`,tag:'speed-alert',renotify:true});}
     catch(e){}
   }
+}
+
+// ── UI REFRESH LOOP ───────────────────────────────────────
+// Repinta el velocímetro cada 500ms cuando la app está visible.
+// Soluciona el congelamiento al volver del segundo plano.
+let _uiTimer = null;
+function startUIRefresh(){
+  if(_uiTimer) return;
+  _uiTimer = setInterval(()=>{
+    if(!isRunning || document.visibilityState !== 'visible') return;
+    setSpeed(currentSpeed);
+  }, 500);
+}
+function stopUIRefresh(){
+  if(_uiTimer){ clearInterval(_uiTimer); _uiTimer = null; }
 }
 
 function startBgAlerts(){
@@ -866,6 +860,7 @@ async function startGPS(){
   await requestWakeLock();
   initBackgroundAudio();
   startBgAlerts();
+  startUIRefresh();
   setStatus('BUSCANDO SEÑAL...',false);
   document.getElementById('btnStart').textContent='⬡ DETENER GPS';
   document.getElementById('btnStart').classList.add('stop');
@@ -878,7 +873,7 @@ async function startGPS(){
 function stopGPS(){
   if(watchId!==null) navigator.geolocation.clearWatch(watchId);
   watchId=null; isRunning=false;
-  stopVoiceAlert(); stopBgAlerts(); clearAlertUI(); setSpeed(0);
+  stopVoiceAlert(); stopBgAlerts(); stopUIRefresh(); clearAlertUI(); setSpeed(0);
   maxSpeed=0; currentHeading=null;
   document.getElementById('maxSpeed').textContent='--';
   document.getElementById('altitude').textContent='-- m';
@@ -892,16 +887,25 @@ function stopGPS(){
 
 let lastPos=null;
 function onPosition(pos){
-  clearError(); setStatus('SEÑAL ACTIVA',true);
   const kmh=Math.max(0,(pos.coords.speed||0)*3.6);
-  currentSpeed=kmh; setSpeed(kmh);
-  if(kmh>maxSpeed){maxSpeed=kmh;document.getElementById('maxSpeed').textContent=maxSpeed.toFixed(1);}
+  // Siempre actualizar el valor interno (funciona en fondo también)
+  currentSpeed=kmh;
 
-  const acc=pos.coords.accuracy;
-  document.getElementById('accuracy').textContent=acc?acc.toFixed(0)+' m':'--';
-  document.getElementById('accBar').style.width=Math.max(0,Math.min(100,100-(acc/50)*100))+'%';
-  const alt=pos.coords.altitude;
-  document.getElementById('altitude').textContent=alt!==null?alt.toFixed(0)+' m':'N/D';
+  // Solo actualizar DOM si la app está visible
+  // Si está en fondo, el UI refresh loop lo pintará al volver
+  if(document.visibilityState === 'visible'){
+    clearError(); setStatus('SEÑAL ACTIVA',true);
+    setSpeed(kmh);
+    if(kmh>maxSpeed){maxSpeed=kmh;document.getElementById('maxSpeed').textContent=maxSpeed.toFixed(1);}
+    const acc=pos.coords.accuracy;
+    document.getElementById('accuracy').textContent=acc?acc.toFixed(0)+' m':'--';
+    document.getElementById('accBar').style.width=Math.max(0,Math.min(100,100-(acc/50)*100))+'%';
+    const alt=pos.coords.altitude;
+    document.getElementById('altitude').textContent=alt!==null?alt.toFixed(0)+' m':'N/D';
+  } else {
+    // En fondo: solo actualizar los valores que no requieren DOM visible
+    if(kmh>maxSpeed) maxSpeed=kmh;
+  }
 
   // Calcular heading desde posiciones consecutivas si GPS no lo da
   if(pos.coords.heading!==null&&pos.coords.heading!==undefined&&!isNaN(pos.coords.heading)){
