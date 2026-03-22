@@ -505,21 +505,22 @@ async function requestWakeLock(){
       setPerm('permBg','ok');
     }catch(e){}
   }
-  // Al volver al primer plano: forzar actualización inmediata del velocímetro
+  // Al volver al primer plano: repintar DOM inmediatamente con datos actuales
   document.addEventListener('visibilitychange', async()=>{
     if(document.visibilityState === 'visible' && isRunning){
-      // 1. Re-adquirir wake lock
       try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
-      // 2. Reanudar AudioContext si fue suspendido
-      if(_bgAC && _bgAC.state === 'suspended') try{ await _bgAC.resume(); }catch(e){}
-      // 3. FORZAR actualización inmediata del velocímetro con el último dato conocido
-      //    No esperar al próximo onPosition — puede tardar segundos
+      if(_bgAC && _bgAC.state==='suspended') try{ await _bgAC.resume(); }catch(e){}
+      // Repintar velocímetro con el último valor real de GPS
       setSpeed(currentSpeed);
-      // 4. Si hay exceso activo, relanzar voz
-      if(isOverLimit){
-        if(window.speechSynthesis) window.speechSynthesis.cancel();
-        setTimeout(()=> speak(Math.round(currentSpeed)), 300);
-      }
+      setStatus('SEÑAL ACTIVA', true);
+      document.getElementById('maxSpeed').textContent = maxSpeed.toFixed(1);
+      document.getElementById('infCount').textContent = infractionCount;
+      if(infractionMaxExcess>0)
+        document.getElementById('infDetail').textContent=`exceso: +${Math.round(currentSpeed>speedLimit?currentSpeed-speedLimit:0)} km/h | máx: +${Math.round(infractionMaxExcess)} km/h`;
+      // Restaurar estado de alerta visual
+      if(isOverLimit) showAlertUI('speed');
+      else if(isNearLimit) showAlertUI('warn');
+      else clearAlertUI();
     }
   });
 }
@@ -764,7 +765,7 @@ function sendNotif(speed,limit){
 
 // ── UI REFRESH LOOP ───────────────────────────────────────
 // Repinta el velocímetro cada 500ms cuando la app está visible.
-// Soluciona el congelamiento al volver del segundo plano.
+// Garantiza que al volver del fondo el KM se actualice sin esperar GPS.
 let _uiTimer = null;
 function startUIRefresh(){
   if(_uiTimer) return;
@@ -887,76 +888,89 @@ function stopGPS(){
 
 let lastPos=null;
 function onPosition(pos){
-  const kmh=Math.max(0,(pos.coords.speed||0)*3.6);
-  // Siempre actualizar el valor interno (funciona en fondo también)
-  currentSpeed=kmh;
+  const kmh = Math.max(0,(pos.coords.speed||0)*3.6);
 
-  // Solo actualizar DOM si la app está visible
-  // Si está en fondo, el UI refresh loop lo pintará al volver
-  if(document.visibilityState === 'visible'){
-    clearError(); setStatus('SEÑAL ACTIVA',true);
-    setSpeed(kmh);
-    if(kmh>maxSpeed){maxSpeed=kmh;document.getElementById('maxSpeed').textContent=maxSpeed.toFixed(1);}
-    const acc=pos.coords.accuracy;
-    document.getElementById('accuracy').textContent=acc?acc.toFixed(0)+' m':'--';
-    document.getElementById('accBar').style.width=Math.max(0,Math.min(100,100-(acc/50)*100))+'%';
-    const alt=pos.coords.altitude;
-    document.getElementById('altitude').textContent=alt!==null?alt.toFixed(0)+' m':'N/D';
-  } else {
-    // En fondo: solo actualizar los valores que no requieren DOM visible
-    if(kmh>maxSpeed) maxSpeed=kmh;
-  }
+  // ── DATOS — siempre, fondo o frente ──────────────────────
+  currentSpeed = kmh;
+  if(kmh > maxSpeed) maxSpeed = kmh;
 
-  // Calcular heading desde posiciones consecutivas si GPS no lo da
-  if(pos.coords.heading!==null&&pos.coords.heading!==undefined&&!isNaN(pos.coords.heading)){
-    currentHeading=pos.coords.heading;
-  } else if(lastPos&&kmh>5){
-    currentHeading=bearing(lastPos.coords.latitude,lastPos.coords.longitude,pos.coords.latitude,pos.coords.longitude);
+  // Heading
+  if(pos.coords.heading!==null && pos.coords.heading!==undefined && !isNaN(pos.coords.heading)){
+    currentHeading = pos.coords.heading;
+  } else if(lastPos && kmh > 5){
+    currentHeading = bearing(lastPos.coords.latitude,lastPos.coords.longitude,pos.coords.latitude,pos.coords.longitude);
   }
-  lastPos=pos;
+  lastPos = pos;
 
   // Distancia estimada
   if(lastDistPos){
     const d=haversine(lastDistPos.coords.latitude,lastDistPos.coords.longitude,pos.coords.latitude,pos.coords.longitude);
-    if(d>5) { totalDistKm+=d/1000; lastDistPos=pos; }
+    if(d>5){ totalDistKm+=d/1000; lastDistPos=pos; }
   } else { lastDistPos=pos; }
 
-  // Consultar OSM con heading
+  // OSM y zonas — siempre (aunque esté en fondo, actualiza datos)
   queryOSM(pos.coords.latitude,pos.coords.longitude,currentHeading);
-
-  // Reevaluar zonas direccionales con posición actual
   if(zonasPendientes.length>0){
     evaluarZonasDireccionales(pos.coords.latitude,pos.coords.longitude,currentHeading);
   }
 
-  // Speed state machine
-  const over=kmh>=speedLimit, near=!over&&kmh>=speedLimit-5;
+  // ── LÓGICA DE ALERTAS — siempre, fondo o frente ──────────
+  const over = kmh >= speedLimit;
+  const near = !over && kmh >= speedLimit-5;
 
-  if(over&&!isOverLimit){
+  if(over && !isOverLimit){
     isOverLimit=true; isNearLimit=false;
     infractionCount++;
-    showAlertUI('speed');
-    startVoiceAlert();
     sendNotif(kmh,speedLimit);
-    const ex=kmh-speedLimit;
-    vibrarExceso(ex);
+    vibrarExceso(kmh-speedLimit);
     addHistorial(kmh,speedLimit,currentRoadName,currentRoadType,pos.coords.latitude,pos.coords.longitude);
-  } else if(!over&&isOverLimit){
-    isOverLimit=false; clearAlertUI(); stopVoiceAlert();
+    // Voz inmediata — funciona en fondo si AudioContext está activo
+    speak(Math.round(kmh));
+    // Iniciar intervalo de voz continua
+    if(!voiceInterval){
+      voiceInterval = setInterval(()=>{
+        if(currentSpeed >= speedLimit && isRunning) speak(Math.round(currentSpeed));
+      }, 4000);
+    }
+  } else if(!over && isOverLimit){
+    isOverLimit=false;
+    if(voiceInterval){ clearInterval(voiceInterval); voiceInterval=null; }
+    if(window.speechSynthesis) window.speechSynthesis.cancel();
     vibrar([100]);
   }
 
-  if(near&&!isNearLimit&&!isOverLimit){
-    isNearLimit=true; showAlertUI('warn'); speak('Atención, cerca del límite');
-  } else if(!near&&isNearLimit&&!isOverLimit){
-    isNearLimit=false; clearAlertUI();
+  if(near && !isNearLimit && !isOverLimit){
+    isNearLimit=true;
+    speak('Atención, cerca del límite');
+  } else if(!near && isNearLimit && !isOverLimit){
+    isNearLimit=false;
   }
 
   if(over){
     const ex=kmh-speedLimit;
     if(ex>infractionMaxExcess) infractionMaxExcess=ex;
-    document.getElementById('infCount').textContent=infractionCount;
-    document.getElementById('infDetail').textContent=`exceso: +${Math.round(ex)} km/h | máx: +${Math.round(infractionMaxExcess)} km/h`;
+  }
+
+  // ── DOM — solo si la app está visible ────────────────────
+  if(document.visibilityState === 'visible'){
+    clearError(); setStatus('SEÑAL ACTIVA',true);
+    setSpeed(kmh);
+    document.getElementById('maxSpeed').textContent=maxSpeed.toFixed(1);
+    const acc=pos.coords.accuracy;
+    document.getElementById('accuracy').textContent=acc?acc.toFixed(0)+' m':'--';
+    document.getElementById('accBar').style.width=Math.max(0,Math.min(100,100-(acc/50)*100))+'%';
+    const alt=pos.coords.altitude;
+    document.getElementById('altitude').textContent=alt!==null?alt.toFixed(0)+' m':'N/D';
+    if(over){
+      const ex=kmh-speedLimit;
+      document.getElementById('infCount').textContent=infractionCount;
+      document.getElementById('infDetail').textContent=`exceso: +${Math.round(ex)} km/h | máx: +${Math.round(infractionMaxExcess)} km/h`;
+      showAlertUI('speed');
+    } else if(near){
+      showAlertUI('warn');
+    } else {
+      clearAlertUI();
+    }
   }
 }
 
