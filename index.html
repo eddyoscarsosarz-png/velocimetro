@@ -829,45 +829,70 @@ function switchTab(id){
 // ── GPS ───────────────────────────────────────────────────
 function toggleGPS(){isRunning?stopGPS():startGPS();}
 
-// ── SISTEMA GPS DUAL ──────────────────────────────────────
-// PROBLEMA: watchPosition se congela en Firefox Android en segundo plano.
-// SOLUCIÓN: Mantener watchPosition (preciso en primer plano) +
-//           Loop de getCurrentPosition cada 1.5s (activo en fondo).
-//           getCurrentPosition SÍ funciona en segundo plano porque
-//           es una solicitud activa, no un listener pasivo.
+// ── SISTEMA GPS CON VELOCIDAD POR POSICIÓN ────────────────
+// El problema confirmado por logs: Firefox Android congela las
+// callbacks de GPS en segundo plano. Los datos llegan todos juntos
+// al volver al frente, con el mismo valor repetido (velocidad congelada).
+//
+// SOLUCIÓN: Calcular velocidad desde coordenadas (lat/lon + tiempo)
+// igual que lo hace Waze/Google Maps. Este cálculo es instantáneo
+// cuando llegan los datos y no depende del campo "speed" que se congela.
+//
+// TIMER DE VOZ INDEPENDIENTE: Corre cada 4s sin depender del GPS.
+// Usa el currentSpeed más reciente para la alerta de voz.
 
-let _gpsLoopTimer = null;
-let _lastGpsTimestamp = 0;
-const GPS_LOOP_INTERVAL = 1500; // cada 1.5 segundos
-const GPS_STALE_MS = 3000;      // si watchPosition no actualiza en 3s → usar loop
+let _posBuffer = [];      // últimas posiciones para suavizar velocidad
+let _voiceTimer = null;   // timer independiente de voz
+let _gpsLoopTimer = null; // loop de getCurrentPosition backup
 
+// Calcula velocidad en km/h entre dos posiciones GPS con timestamps
+function _calcSpeedFromPos(pos1, pos2){
+  if(!pos1 || !pos2) return null;
+  const dt = (pos2.timestamp - pos1.timestamp) / 1000; // segundos
+  if(dt <= 0 || dt > 10) return null; // ignorar gaps grandes
+  const dist = haversine(
+    pos1.coords.latitude, pos1.coords.longitude,
+    pos2.coords.latitude, pos2.coords.longitude
+  );
+  return (dist / dt) * 3.6; // m/s → km/h
+}
+
+// Timer de voz independiente — corre aunque el GPS esté congelado
+function _startVoiceTimer(){
+  if(_voiceTimer) return;
+  _voiceTimer = setInterval(()=>{
+    if(!isRunning) return;
+    if(isOverLimit && window.speechSynthesis && !window.speechSynthesis.speaking){
+      speak(Math.round(currentSpeed));
+    }
+  }, 4000);
+}
+
+function _stopVoiceTimer(){
+  if(_voiceTimer){ clearInterval(_voiceTimer); _voiceTimer = null; }
+}
+
+// GPS loop backup con getCurrentPosition
 function _startGPSLoop(){
   if(_gpsLoopTimer) return;
-  _lastGpsTimestamp = Date.now();
+  let lastLoopTime = Date.now();
   _gpsLoopTimer = setInterval(()=>{
     if(!isRunning) return;
-    const sinceLastGps = Date.now() - _lastGpsTimestamp;
-    // Solo activar el loop si watchPosition lleva más de 3s sin actualizar
-    // (es decir, estamos en segundo plano o watchPosition se congeló)
-    if(sinceLastGps < GPS_STALE_MS) return;
-    // watchPosition está congelado → pedir posición activamente
+    const sinceLastGps = Date.now() - _lastGpsTs;
+    if(sinceLastGps < 3000) return; // watchPosition sigue vivo
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        _lastGpsTimestamp = Date.now();
-        onPosition(pos);
-      },
-      (err) => {
-        // Error 3 = timeout, ignorar silenciosamente
-        if(err.code !== 3) console.warn('GPS loop error:', err.code);
-      },
+      (pos)=>{ _lastGpsTs = Date.now(); onPosition(pos); },
+      (err)=>{ if(err.code !== 3) console.warn('GPS loop:', err.code); },
       {enableHighAccuracy:true, maximumAge:2000, timeout:4000}
     );
-  }, GPS_LOOP_INTERVAL);
+  }, 1500);
 }
 
 function _stopGPSLoop(){
   if(_gpsLoopTimer){ clearInterval(_gpsLoopTimer); _gpsLoopTimer = null; }
 }
+
+let _lastGpsTs = 0; // timestamp del último GPS recibido
 
 async function startGPS(){
   if(!navigator.geolocation){showError('Tu dispositivo no soporta geolocalización.');return;}
@@ -875,24 +900,26 @@ async function startGPS(){
   await requestWakeLock();
   initBackgroundAudio();
   startBgAlerts();
+  _posBuffer = [];
+  _lastGpsTs = Date.now();
   setStatus('BUSCANDO SEÑAL...',false);
   document.getElementById('btnStart').textContent='⬡ DETENER GPS';
   document.getElementById('btnStart').classList.add('stop');
   setPerm('permGPS','ok');
   isRunning=true;
-  // watchPosition — funciona perfecto en primer plano
   watchId=navigator.geolocation.watchPosition(onPosition, onError,
     {enableHighAccuracy:true, maximumAge:0, timeout:10000});
-  // Loop activo — cubre el fondo cuando watchPosition se congela
   _startGPSLoop();
+  _startVoiceTimer();
 }
 
 function stopGPS(){
   if(watchId!==null) navigator.geolocation.clearWatch(watchId);
   watchId=null; isRunning=false;
   _stopGPSLoop();
+  _stopVoiceTimer();
   stopVoiceAlert(); stopBgAlerts(); clearAlertUI(); setSpeed(0);
-  maxSpeed=0; currentHeading=null;
+  maxSpeed=0; currentHeading=null; _posBuffer=[];
   document.getElementById('maxSpeed').textContent='--';
   document.getElementById('altitude').textContent='-- m';
   document.getElementById('accuracy').textContent='--';
@@ -905,13 +932,42 @@ function stopGPS(){
 
 let lastPos=null;
 function onPosition(pos){
-  // Registrar timestamp — el GPS loop usa esto para saber si watchPosition está vivo
-  _lastGpsTimestamp = Date.now();
-
+  _lastGpsTs = Date.now();
   clearError(); setStatus('SEÑAL ACTIVA',true);
-  const kmh=Math.max(0,(pos.coords.speed||0)*3.6);
-  currentSpeed=kmh; setSpeed(kmh);
-  if(kmh>maxSpeed){maxSpeed=kmh;document.getElementById('maxSpeed').textContent=maxSpeed.toFixed(1);}
+
+  // ── CALCULAR VELOCIDAD DESDE COORDENADAS ─────────────────
+  // Guardar posición en buffer (máx 3 para suavizar)
+  _posBuffer.push(pos);
+  if(_posBuffer.length > 3) _posBuffer.shift();
+
+  let kmh = 0;
+  if(_posBuffer.length >= 2){
+    // Calcular desde las últimas 2 posiciones
+    const calculated = _calcSpeedFromPos(
+      _posBuffer[_posBuffer.length-2],
+      _posBuffer[_posBuffer.length-1]
+    );
+    if(calculated !== null && calculated >= 0 && calculated < 300){
+      kmh = calculated;
+    } else {
+      // Fallback al campo speed del GPS si el cálculo falla
+      kmh = Math.max(0,(pos.coords.speed||0)*3.6);
+    }
+  } else {
+    // Primera posición — usar speed del GPS directamente
+    kmh = Math.max(0,(pos.coords.speed||0)*3.6);
+  }
+
+  // Suavizar: si la diferencia con la lectura anterior es > 30 km/h
+  // en menos de 1s, probablemente es un dato viejo acumulado → ignorar
+  const dt = lastPos ? (pos.timestamp - lastPos.timestamp)/1000 : 1;
+  if(lastPos && dt < 1 && Math.abs(kmh - currentSpeed) > 30){
+    kmh = currentSpeed; // mantener velocidad anterior
+  }
+
+  currentSpeed = kmh;
+  setSpeed(kmh);
+  if(kmh > maxSpeed){ maxSpeed=kmh; document.getElementById('maxSpeed').textContent=maxSpeed.toFixed(1); }
 
   const acc=pos.coords.accuracy;
   document.getElementById('accuracy').textContent=acc?acc.toFixed(0)+' m':'--';
@@ -948,13 +1004,15 @@ function onPosition(pos){
     isOverLimit=true; isNearLimit=false;
     infractionCount++;
     showAlertUI('speed');
-    startVoiceAlert();
+    speak(Math.round(kmh)); // voz inmediata al exceder
+    // El _voiceTimer independiente repite cada 4s sin depender de GPS
     sendNotif(kmh,speedLimit);
     const ex=kmh-speedLimit;
     vibrarExceso(ex);
     addHistorial(kmh,speedLimit,currentRoadName,currentRoadType,pos.coords.latitude,pos.coords.longitude);
   } else if(!over&&isOverLimit){
-    isOverLimit=false; clearAlertUI(); stopVoiceAlert();
+    isOverLimit=false; clearAlertUI();
+    if(window.speechSynthesis) window.speechSynthesis.cancel();
     vibrar([100]);
   }
 
