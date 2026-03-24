@@ -3,28 +3,38 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>VeloLima — Diagnóstico GPS</title>
+<title>VeloLima — Diagnóstico Avanzado</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#050810;color:#e0e0e0;font-family:'Courier New',monospace;min-height:100dvh;display:flex;flex-direction:column;align-items:center;padding:12px;gap:10px}
-h1{font-size:0.75rem;letter-spacing:0.3em;color:#00e5ff;text-align:center;padding:8px 0}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;max-width:460px}
-.card{background:#0d1117;border:1px solid #1e2a3a;border-radius:10px;padding:10px 14px}
-.card-label{font-size:0.5rem;letter-spacing:0.2em;color:#4a6280;margin-bottom:4px}
-.card-value{font-size:1rem;font-weight:700;color:#fff}
-.card-value.green{color:#39ff14}
-.card-value.red{color:#ff2244}
-.card-value.yellow{color:#ffd600}
-.card-value.cyan{color:#00e5ff}
-.card-value.orange{color:#ff6b35}
-.log-wrap{width:100%;max-width:460px;background:#0d1117;border:1px solid #1e2a3a;border-radius:10px;overflow:hidden;flex:1}
-.log-header{padding:8px 14px;font-size:0.55rem;letter-spacing:0.2em;color:#4a6280;border-bottom:1px solid #1e2a3a;display:flex;justify-content:space-between;align-items:center}
-.log-clear{font-size:0.5rem;color:#4a6280;cursor:pointer;padding:2px 8px;border:1px solid #1e2a3a;border-radius:4px}
-.log-clear:hover{color:#fff;border-color:#4a6280}
-.log-body{height:320px;overflow-y:auto;padding:6px 0}
+body{background:#050810;color:#e0e0e0;font-family:'Courier New',monospace;min-height:100dvh;display:flex;flex-direction:column;align-items:center;padding:10px;gap:8px}
+h1{font-size:0.7rem;letter-spacing:0.25em;color:#00e5ff;text-align:center;padding:6px 0}
+.checklist{width:100%;max-width:460px;background:#0d1117;border:1px solid #1e2a3a;border-radius:10px;overflow:hidden}
+.cl-header{padding:7px 14px;font-size:0.52rem;letter-spacing:0.2em;color:#4a6280;border-bottom:1px solid #1e2a3a;display:flex;justify-content:space-between}
+.cl-score{color:#00e5ff;font-weight:700}
+.cl-item{display:flex;align-items:center;gap:10px;padding:7px 14px;border-bottom:1px solid rgba(255,255,255,0.03)}
+.cl-item:last-child{border-bottom:none}
+.cl-icon{font-size:1rem;flex:0 0 22px;text-align:center}
+.cl-body{flex:1}
+.cl-name{font-size:0.55rem;letter-spacing:0.1em;color:#fff}
+.cl-desc{font-size:0.46rem;color:#4a6280;margin-top:1px}
+.cl-status{font-size:0.48rem;letter-spacing:0.1em;font-weight:700;flex:0 0 auto;padding:2px 8px;border-radius:4px;border:1px solid;white-space:nowrap}
+.st-ok{color:#39ff14;border-color:rgba(57,255,20,0.3);background:rgba(57,255,20,0.05)}
+.st-fail{color:#ff2244;border-color:rgba(255,34,68,0.3);background:rgba(255,34,68,0.05)}
+.st-warn{color:#ffd600;border-color:rgba(255,214,0,0.3);background:rgba(255,214,0,0.05)}
+.st-pend{color:#4a6280;border-color:rgba(74,98,128,0.3);background:transparent}
+.st-test{color:#00e5ff;border-color:rgba(0,229,255,0.3);background:rgba(0,229,255,0.05)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%;max-width:460px}
+.card{background:#0d1117;border:1px solid #1e2a3a;border-radius:8px;padding:8px 12px}
+.card-label{font-size:0.45rem;letter-spacing:0.2em;color:#4a6280;margin-bottom:3px}
+.card-value{font-size:0.95rem;font-weight:700;color:#fff}
+.green{color:#39ff14}.red{color:#ff2244}.yellow{color:#ffd600}.cyan{color:#00e5ff}.orange{color:#ff6b35}
+.log-wrap{width:100%;max-width:460px;background:#0d1117;border:1px solid #1e2a3a;border-radius:10px;overflow:hidden}
+.log-header{padding:7px 14px;font-size:0.52rem;letter-spacing:0.2em;color:#4a6280;border-bottom:1px solid #1e2a3a;display:flex;justify-content:space-between;align-items:center}
+.log-clear{font-size:0.48rem;color:#4a6280;cursor:pointer;padding:2px 8px;border:1px solid #1e2a3a;border-radius:4px}
+.log-body{height:230px;overflow-y:auto;padding:4px 0}
 .log-body::-webkit-scrollbar{width:3px}
 .log-body::-webkit-scrollbar-thumb{background:#1e2a3a;border-radius:3px}
-.log-line{font-size:0.52rem;padding:3px 14px;border-bottom:1px solid rgba(255,255,255,0.03);display:flex;gap:8px;align-items:flex-start;line-height:1.5}
+.log-line{font-size:0.5rem;padding:2px 14px;border-bottom:1px solid rgba(255,255,255,0.02);display:flex;gap:8px;line-height:1.6}
 .log-time{color:#2a4060;flex:0 0 62px}
 .log-text{flex:1;word-break:break-word}
 .log-line.gps .log-text{color:#39ff14}
@@ -34,345 +44,348 @@ h1{font-size:0.75rem;letter-spacing:0.3em;color:#00e5ff;text-align:center;paddin
 .log-line.bg .log-text{color:#a78bfa}
 .log-line.beep .log-text{color:#ff6b35}
 .log-line.sys .log-text{color:#4a6280}
-.btn-row{display:flex;gap:8px;width:100%;max-width:460px}
-.btn{flex:1;font-family:'Courier New',monospace;font-size:0.65rem;letter-spacing:0.15em;padding:13px 8px;border-radius:10px;border:1px solid;cursor:pointer;text-transform:uppercase;transition:all 0.2s;background:transparent}
-.btn-start{border-color:#00e5ff;color:#00e5ff}
-.btn-start.active{border-color:#ff2244;color:#ff2244}
-.btn-export{border-color:#4a6280;color:#4a6280;flex:0 0 auto;padding:13px 16px}
-.btn-export:hover{color:#fff;border-color:#fff}
-.legend{width:100%;max-width:460px;display:flex;gap:10px;flex-wrap:wrap;padding:4px 0}
-.leg{font-size:0.48rem;letter-spacing:0.08em;display:flex;align-items:center;gap:4px}
-.leg-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.log-line.ok .log-text{color:#39ff14}
+.log-line.check .log-text{color:#a78bfa}
+.btn-row{display:flex;gap:6px;width:100%;max-width:460px}
+.btn{font-family:'Courier New',monospace;font-size:0.6rem;letter-spacing:0.12em;padding:11px 8px;border-radius:8px;border:1px solid;cursor:pointer;text-transform:uppercase;transition:all 0.2s;background:transparent}
+.btn-main{flex:1;border-color:#00e5ff;color:#00e5ff}
+.btn-main.active{border-color:#ff2244;color:#ff2244}
+.btn-sm{flex:0 0 auto;padding:11px 14px}
+.btn-check{border-color:#a78bfa;color:#a78bfa}
+.btn-export{border-color:#4a6280;color:#4a6280}
 </style>
 </head>
 <body>
-<h1>🛰 VELOLIMA — DIAGNÓSTICO GPS SEGUNDO PLANO</h1>
+<h1>🛰 VELOLIMA — DIAGNÓSTICO AVANZADO v2</h1>
 
-<div class="grid">
-  <div class="card">
-    <div class="card-label">GPS</div>
-    <div class="card-value cyan" id="dSpeed">INACTIVO</div>
-  </div>
-  <div class="card">
-    <div class="card-label">AUDIO CTX</div>
-    <div class="card-value" id="dAudio">--</div>
-  </div>
-  <div class="card">
-    <div class="card-label">APP ESTADO</div>
-    <div class="card-value green" id="dVisible">PRIMER PLANO</div>
-  </div>
-  <div class="card">
-    <div class="card-label">TICK COUNTER</div>
-    <div class="card-value" id="dTick">0</div>
-  </div>
-  <div class="card">
-    <div class="card-label">GPS UPDATES (watch)</div>
-    <div class="card-value green" id="dGpsCount">0</div>
-  </div>
-  <div class="card">
-    <div class="card-label">LOOP UPDATES (activo)</div>
-    <div class="card-value orange" id="dLoopCount">0</div>
-  </div>
-  <div class="card">
-    <div class="card-label">ÚLTIMO GPS</div>
-    <div class="card-value" id="dLastGps">--</div>
-  </div>
-  <div class="card">
-    <div class="card-label">VOZ</div>
-    <div class="card-value" id="dVoz">--</div>
-  </div>
+<div class="checklist">
+  <div class="cl-header"><span>✅ CHECKLIST DE FUNCIONAMIENTO</span><span class="cl-score" id="clScore">0/9</span></div>
+  <div class="cl-item"><div class="cl-icon">📍</div><div class="cl-body"><div class="cl-name">PERMISO GPS</div><div class="cl-desc">Geolocalización autorizada por usuario</div></div><div class="cl-status st-pend" id="ck-gps">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🔔</div><div class="cl-body"><div class="cl-name">NOTIFICACIONES</div><div class="cl-desc">Alertas visibles cuando la app está en fondo</div></div><div class="cl-status st-pend" id="ck-notif">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">💡</div><div class="cl-body"><div class="cl-name">WAKE LOCK</div><div class="cl-desc">Pantalla no se apaga mientras conduce</div></div><div class="cl-status st-pend" id="ck-wake">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🔊</div><div class="cl-body"><div class="cl-name">AUDIO CONTEXT</div><div class="cl-desc">Motor de audio activo (keep-alive en fondo)</div></div><div class="cl-status st-pend" id="ck-audio">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🎵</div><div class="cl-body"><div class="cl-name">MEDIA SESSION</div><div class="cl-desc">App registrada como reproductor de medios</div></div><div class="cl-status st-pend" id="ck-media">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🗣️</div><div class="cl-body"><div class="cl-name">VOZ (SPEECH)</div><div class="cl-desc">Síntesis de voz funcional en español</div></div><div class="cl-status st-pend" id="ck-voz">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">📡</div><div class="cl-body"><div class="cl-name">GPS WATCH ACTIVO</div><div class="cl-desc">watchPosition entrega datos en primer plano</div></div><div class="cl-status st-pend" id="ck-watch">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🔄</div><div class="cl-body"><div class="cl-name">GPS LOOP BACKUP</div><div class="cl-desc">getCurrentPosition funciona como respaldo</div></div><div class="cl-status st-pend" id="ck-loop">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🌙</div><div class="cl-body"><div class="cl-name">GPS EN SEGUNDO PLANO</div><div class="cl-desc">GPS se actualiza al minimizar la app</div></div><div class="cl-status st-pend" id="ck-bg">PEND</div></div>
 </div>
 
-<div class="legend">
-  <div class="leg"><div class="leg-dot" style="background:#39ff14"></div><span style="color:#39ff14">GPS WATCH</span></div>
-  <div class="leg"><div class="leg-dot" style="background:#ff6b35"></div><span style="color:#ff6b35">GPS LOOP</span></div>
-  <div class="leg"><div class="leg-dot" style="background:#a78bfa"></div><span style="color:#a78bfa">FONDO</span></div>
-  <div class="leg"><div class="leg-dot" style="background:#00e5ff"></div><span style="color:#00e5ff">INFO</span></div>
-  <div class="leg"><div class="leg-dot" style="background:#ffd600"></div><span style="color:#ffd600">ALERTA</span></div>
-  <div class="leg"><div class="leg-dot" style="background:#ff2244"></div><span style="color:#ff2244">ERROR</span></div>
+<div class="grid">
+  <div class="card"><div class="card-label">GPS VELOCIDAD</div><div class="card-value cyan" id="dSpeed">--</div></div>
+  <div class="card"><div class="card-label">AUDIO CTX</div><div class="card-value" id="dAudio">--</div></div>
+  <div class="card"><div class="card-label">APP ESTADO</div><div class="card-value green" id="dVis">INACTIVO</div></div>
+  <div class="card"><div class="card-label">TICK (setInterval)</div><div class="card-value" id="dTick">0</div></div>
+  <div class="card"><div class="card-label">GPS WATCH #</div><div class="card-value green" id="dWatch">0</div></div>
+  <div class="card"><div class="card-label">GPS LOOP #</div><div class="card-value orange" id="dLoop">0</div></div>
+  <div class="card"><div class="card-label">ÚLTIMO GPS</div><div class="card-value" id="dLast">--</div></div>
+  <div class="card"><div class="card-label">VOZ</div><div class="card-value" id="dVoz">--</div></div>
 </div>
 
 <div class="log-wrap">
-  <div class="log-header">
-    <span>REGISTRO EN TIEMPO REAL</span>
-    <span class="log-clear" onclick="clearLog()">LIMPIAR</span>
-  </div>
+  <div class="log-header"><span>REGISTRO EN TIEMPO REAL</span><span class="log-clear" onclick="clearLog()">LIMPIAR</span></div>
   <div class="log-body" id="logBody"></div>
 </div>
 
 <div class="btn-row">
-  <button class="btn btn-start" id="btnStart" onclick="toggle()">▶ INICIAR DIAGNÓSTICO</button>
-  <button class="btn btn-export" onclick="exportLog()" title="Exportar log">💾</button>
+  <button class="btn btn-main" id="btnMain" onclick="toggle()">▶ INICIAR DIAGNÓSTICO</button>
+  <button class="btn btn-sm btn-check" onclick="runChecklist()" title="Actualizar checklist">☑</button>
+  <button class="btn btn-sm btn-export" onclick="exportLog()" title="Descargar log .txt">💾</button>
 </div>
 
 <script>
-let running=false, watchId=null;
-let tickCount=0, gpsCount=0, loopCount=0;
-let lastGpsTime=0;
-let audioCtx=null, bgLoopTimer=null, tickTimer=null, gpsLoopTimer=null, vozTimer=null;
-let wakeLock=null;
-let logLines=[];
+var running=false,watchId=null;
+var tickCount=0,watchCount=0,loopCount=0;
+var lastGpsTs=0,lastGpsKmh=0,lastBgKmh=null,prevKmhBeforeBg=null;
+var audioCtx=null,bgTimer=null,tickTimer=null,loopTimer=null,vozTimer=null;
+var wakeLock=null,inBg=false,bgGpsOk=false;
+var logLines=[],checkScores={};
+var CHECKS=['gps','notif','wake','audio','media','voz','watch','loop','bg'];
 
-// ── TIEMPO ────────────────────────────────────────────────
-function ts(){
-  const n=new Date();
-  return `[${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}]`;
-}
+function ts(){var n=new Date();return'['+pad(n.getHours())+':'+pad(n.getMinutes())+':'+pad(n.getSeconds())+']';}
+function pad(v){return String(v).padStart(2,'0');}
 
-// ── LOG ───────────────────────────────────────────────────
-function log(text,type='sys'){
-  const line={time:ts(),text,type};
+function log(text,type){
+  type=type||'sys';
+  var line={time:ts(),text:text,type:type};
   logLines.push(line);
-  if(logLines.length>400) logLines.shift();
-  const el=document.createElement('div');
-  el.className=`log-line ${type}`;
-  el.innerHTML=`<span class="log-time">${line.time}</span><span class="log-text">${text}</span>`;
-  const body=document.getElementById('logBody');
+  if(logLines.length>500)logLines.shift();
+  var el=document.createElement('div');
+  el.className='log-line '+type;
+  el.innerHTML='<span class="log-time">'+line.time+'</span><span class="log-text">'+text+'</span>';
+  var body=document.getElementById('logBody');
   body.appendChild(el);
   body.scrollTop=body.scrollHeight;
 }
-
 function clearLog(){logLines=[];document.getElementById('logBody').innerHTML='';}
 
 function exportLog(){
-  const txt=logLines.map(l=>`${l.time} [${l.type.toUpperCase()}] ${l.text}`).join('\n');
-  const blob=new Blob([txt],{type:'text/plain'});
-  const a=document.createElement('a');
+  var names={gps:'GPS Permiso',notif:'Notificaciones',wake:'Wake Lock',audio:'Audio Context',media:'Media Session',voz:'Voz Speech',watch:'GPS Watch',loop:'GPS Loop Backup',bg:'GPS en Fondo'};
+  var summary=[
+    '===========================================',
+    'VELOLIMA — REPORTE DE DIAGNOSTICO',
+    'Fecha: '+new Date().toLocaleString(),
+    'Dispositivo: '+navigator.userAgent.slice(0,100),
+    '===========================================',
+    'CHECKLIST:'
+  ];
+  CHECKS.forEach(function(id){
+    var s=checkScores[id]||'pend';
+    var icon={ok:'OK',fail:'FALLO',warn:'WARN',pend:'PEND',test:'TEST'}[s]||s;
+    summary.push('  ['+icon+'] '+(names[id]||id));
+  });
+  var ok=Object.values(checkScores).filter(function(v){return v==='ok';}).length;
+  summary.push('SCORE: '+ok+'/'+CHECKS.length);
+  summary.push('===========================================');
+  summary.push('LOG COMPLETO:');
+  logLines.forEach(function(l){summary.push(l.time+' ['+l.type.toUpperCase()+'] '+l.text);});
+  var blob=new Blob([summary.join('\n')],{type:'text/plain'});
+  var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download=`diag_gps_${new Date().toISOString().slice(0,19).replace(/[:.]/g,'-')}.txt`;
+  a.download='velolima_diag_'+new Date().toISOString().slice(0,19).replace(/[:.]/g,'-')+'.txt';
   a.click();
+  log('💾 Log exportado','info');
 }
 
-// ── UI ────────────────────────────────────────────────────
-function setCard(id,val,color=''){
-  const el=document.getElementById(id);
+function setCard(id,val,color){
+  var el=document.getElementById(id);
+  if(!el)return;
   el.textContent=val;
   el.className='card-value'+(color?' '+color:'');
 }
 
-// ── AUDIO keep-alive ──────────────────────────────────────
-function initAudio(){
-  try{
-    const AC=window.AudioContext||window.webkitAudioContext;
-    if(!AC){log('AudioContext NO soportado','error');return;}
-    audioCtx=new AC();
-    log(`✅ AudioContext creado — estado: ${audioCtx.state}`,'info');
-    setCard('dAudio',audioCtx.state,'green');
-
-    if('mediaSession' in navigator){
-      try{
-        navigator.mediaSession.metadata=new MediaMetadata({title:'VeloLima Diag',artist:'GPS Test'});
-        navigator.mediaSession.playbackState='playing';
-        ['play','pause','stop','seekbackward','seekforward'].forEach(a=>{
-          try{navigator.mediaSession.setActionHandler(a,()=>{});}catch(e){}
-        });
-        log('✅ MediaSession registrada','info');
-      }catch(e){log('⚠️ MediaSession error: '+e.message,'warn');}
-    }
-
-    function beep(){
-      try{
-        if(audioCtx.state==='suspended') audioCtx.resume();
-        const osc=audioCtx.createOscillator();
-        const g=audioCtx.createGain();
-        g.gain.setValueAtTime(0.15,audioCtx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.08);
-        osc.frequency.value=880; osc.type='sine';
-        osc.connect(g); g.connect(audioCtx.destination);
-        osc.start(); osc.stop(audioCtx.currentTime+0.08);
-        const isBg=document.hidden;
-        log(`🔔 Beep keep-alive | audio=${audioCtx.state} | fondo=${isBg}`,'beep');
-        setCard('dAudio',audioCtx.state,audioCtx.state==='running'?'green':'yellow');
-      }catch(e){log('❌ Beep error: '+e.message,'error');}
-    }
-    beep();
-    bgLoopTimer=setInterval(beep,25000);
-    log('🎵 Primer beep emitido','info');
-  }catch(e){log('❌ Audio init error: '+e.message,'error');}
+function setCheck(id,status,detail){
+  var el=document.getElementById('ck-'+id);
+  if(!el)return;
+  el.className='cl-status st-'+status;
+  var labels={ok:'✓ OK',fail:'✗ FALLO',warn:'⚠ WARN',pend:'PEND',test:'…PROB'};
+  el.textContent=labels[status]||status;
+  if(detail)el.title=detail;
+  checkScores[id]=status;
+  var okCount=Object.values(checkScores).filter(function(v){return v==='ok';}).length;
+  var scoreEl=document.getElementById('clScore');
+  scoreEl.textContent=okCount+'/'+CHECKS.length;
+  scoreEl.style.color=okCount===CHECKS.length?'#39ff14':okCount>=6?'#ffd600':'#ff2244';
 }
 
-// ── TICK — mide si setInterval sobrevive en fondo ─────────
+function runChecklist(){
+  log('=== ACTUALIZANDO CHECKLIST ===','check');
+  // GPS Watch
+  if(watchCount>0){setCheck('watch','ok',watchCount+' updates');log('✓ GPS Watch: '+watchCount+' actualizaciones','ok');}
+  else if(running){setCheck('watch','test','Esperando...');}
+  else setCheck('watch','pend');
+  // GPS Loop
+  if(loopCount>0){setCheck('loop','ok',loopCount+' activaciones');log('✓ GPS Loop: '+loopCount+' activaciones','ok');}
+  else if(running){setCheck('loop','warn','Sin activaciones — watchPosition sigue vivo (normal)');}
+  else setCheck('loop','pend');
+  // GPS Fondo
+  if(bgGpsOk){setCheck('bg','ok','GPS actualiza en fondo: '+(lastBgKmh||0).toFixed(1)+' km/h');log('✓ GPS Fondo: OK','ok');}
+  else if(inBg){setCheck('bg','test','Esperando datos en fondo...');}
+  else if(running){setCheck('bg','test','Minimiza la app 30s para probar');}
+  else setCheck('bg','pend');
+  var ok=Object.values(checkScores).filter(function(v){return v==='ok';}).length;
+  log('=== SCORE: '+ok+'/'+CHECKS.length+' ===','check');
+}
+
+function initAudio(){
+  try{
+    var AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC){setCheck('audio','fail','No soportado');return;}
+    audioCtx=new AC();
+    setCheck('audio','ok','Estado: '+audioCtx.state);
+    log('✓ AudioContext creado: '+audioCtx.state,'ok');
+    if('mediaSession' in navigator){
+      try{
+        navigator.mediaSession.metadata=new MediaMetadata({title:'VeloLima GPS',artist:'Diagnostico'});
+        navigator.mediaSession.playbackState='playing';
+        ['play','pause','stop','seekbackward','seekforward'].forEach(function(a){try{navigator.mediaSession.setActionHandler(a,function(){});}catch(e){}});
+        setCheck('media','ok');log('✓ MediaSession registrada','ok');
+      }catch(e){setCheck('media','warn',e.message);}
+    } else {setCheck('media','warn','No soportado');}
+    function beep(){
+      try{
+        if(audioCtx.state==='suspended')audioCtx.resume();
+        var osc=audioCtx.createOscillator(),g=audioCtx.createGain();
+        g.gain.setValueAtTime(0.12,audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.08);
+        osc.frequency.value=880;osc.type='sine';
+        osc.connect(g);g.connect(audioCtx.destination);
+        osc.start();osc.stop(audioCtx.currentTime+0.08);
+        log('🔔 Beep keep-alive | audio='+audioCtx.state+' | fondo='+document.hidden,'beep');
+        setCard('dAudio',audioCtx.state,audioCtx.state==='running'?'green':'yellow');
+      }catch(e){}
+    }
+    beep();
+    bgTimer=setInterval(beep,25000);
+  }catch(e){setCheck('audio','fail',e.message);log('✗ Audio: '+e.message,'error');}
+}
+
 function startTick(){
-  tickTimer=setInterval(()=>{
+  tickTimer=setInterval(function(){
     tickCount++;
     setCard('dTick',tickCount);
-    const isBg=document.hidden;
-    const audioState=audioCtx?audioCtx.state:'N/A';
-    // Log cada 5 ticks (cada 25s)
-    if(tickCount%5===0){
-      log(`TICK ${tickCount} | ${isBg?'🌙 FONDO':'☀️ FRENTE'} | audio=${audioState}`,'bg');
-    }
+    if(tickCount%5===0)log('TICK '+tickCount+' | '+(document.hidden?'🌙 FONDO':'☀️ FRENTE')+' | audio='+(audioCtx?audioCtx.state:'N/A'),'bg');
   },5000);
 }
 
-// ── VOZ — mide si speechSynthesis funciona en fondo ───────
-function startVozTest(){
-  let vozCount=0;
-  vozTimer=setInterval(()=>{
-    if(!running) return;
-    vozCount++;
-    try{
-      if(window.speechSynthesis){
-        if(window.speechSynthesis.paused) window.speechSynthesis.resume();
-        const u=new SpeechSynthesisUtterance('voz');
-        u.lang='es-PE'; u.volume=0.3; u.rate=1.2;
-        u.onstart=()=>{
-          const isBg=document.hidden;
-          log(`🔊 Voz iniciada | fondo=${isBg}`,'info');
-          setCard('dVoz','OK','green');
-        };
-        u.onend=()=>log('🔇 Voz terminó','sys');
-        u.onerror=(e)=>{
-          log(`❌ Voz error: ${e.error}`,'error');
-          setCard('dVoz','ERROR','red');
-        };
-        window.speechSynthesis.speak(u);
-      }
-    }catch(e){log('❌ Voz exception: '+e.message,'error');}
-  },30000); // cada 30s para no molestar
-  log('🔊 Voz iniciada','info');
-  setCard('dVoz','OK','green');
-}
-
-// ── GPS WATCH ─────────────────────────────────────────────
 function startWatch(){
-  if(!navigator.geolocation){log('❌ Geolocalización NO disponible','error');return;}
-  log('🛰️ Iniciando GPS watchPosition...','info');
   watchId=navigator.geolocation.watchPosition(
-    (pos)=>{
-      lastGpsTime=Date.now();
-      gpsCount++;
-      const kmh=Math.max(0,(pos.coords.speed||0)*3.6);
-      const acc=Math.round(pos.coords.accuracy);
-      const isBg=document.hidden;
+    function(pos){
+      lastGpsTs=Date.now();
+      watchCount++;
+      var kmh=Math.max(0,(pos.coords.speed||0)*3.6);
+      lastGpsKmh=kmh;
+      if(inBg){lastBgKmh=kmh;if(watchCount>2||Math.abs(kmh-(prevKmhBeforeBg||0))>1){bgGpsOk=true;}}
       setCard('dSpeed',Math.round(kmh)+' km/h','cyan');
-      setCard('dGpsCount',gpsCount,'green');
-      setCard('dLastGps',new Date().toLocaleTimeString());
-      log(`📍 GPS #${gpsCount} | ${kmh.toFixed(1)} km/h | acc=${acc}m | ${isBg?'🌙 FONDO':'☀️ FRENTE'}`,'gps');
+      setCard('dWatch',watchCount,'green');
+      setCard('dLast',new Date().toLocaleTimeString());
+      log('📍 GPS #'+watchCount+' | '+kmh.toFixed(1)+' km/h | acc='+Math.round(pos.coords.accuracy)+'m | '+(document.hidden?'🌙 FONDO':'☀️ FRENTE'),'gps');
+      if(watchCount===1){setCheck('gps','ok');setCheck('watch','ok','1 update');}
+      else setCheck('watch','ok',watchCount+' updates');
     },
-    (err)=>{
-      const msgs={1:'PERMISO DENEGADO',2:'SEÑAL NO DISPONIBLE',3:'TIMEOUT'};
-      log(`⚠️ watchPosition err ${err.code}: ${msgs[err.code]||'desconocido'}`,'warn');
-      if(err.code===1){log('❌ Permiso denegado — deteniendo','error');stopDiag();}
+    function(err){
+      var m={1:'Permiso denegado',2:'Sin señal',3:'Timeout'};
+      log('⚠ GPS watch err '+err.code+': '+(m[err.code]||'desconocido'),'warn');
+      if(err.code===1){setCheck('gps','fail','Permiso denegado');stopDiag();}
     },
     {enableHighAccuracy:true,maximumAge:0,timeout:10000}
   );
 }
 
-// ── GPS LOOP — getCurrentPosition activo cada 1.5s ────────
-// Este es el mecanismo backup que debería seguir funcionando en fondo
-function startGPSLoop(){
-  log('🔄 Iniciando GPS loop activo (backup fondo)...','info');
-  gpsLoopTimer=setInterval(()=>{
-    if(!running) return;
-    const sinceLastGps=Date.now()-lastGpsTime;
-    // Solo actuar si watchPosition lleva +3s sin responder
-    if(sinceLastGps<3000) return;
+function startLoop(){
+  loopTimer=setInterval(function(){
+    if(!running)return;
+    var since=Date.now()-lastGpsTs;
+    if(since<3000)return;
     navigator.geolocation.getCurrentPosition(
-      (pos)=>{
-        lastGpsTime=Date.now();
-        loopCount++;
-        const kmh=Math.max(0,(pos.coords.speed||0)*3.6);
-        const acc=Math.round(pos.coords.accuracy);
-        const isBg=document.hidden;
-        const lag=Math.round(sinceLastGps/1000);
+      function(pos){
+        lastGpsTs=Date.now();loopCount++;
+        var kmh=Math.max(0,(pos.coords.speed||0)*3.6);
+        var lag=Math.round(since/1000);
+        if(inBg){lastBgKmh=kmh;bgGpsOk=true;}
         setCard('dSpeed',Math.round(kmh)+' km/h','orange');
-        setCard('dLoopCount',loopCount,'orange');
-        setCard('dLastGps',new Date().toLocaleTimeString());
-        log(`🔄 LOOP #${loopCount} | ${kmh.toFixed(1)} km/h | acc=${acc}m | lag=${lag}s | ${isBg?'🌙 FONDO':'☀️ FRENTE'}`,'beep');
+        setCard('dLoop',loopCount,'orange');
+        setCard('dLast',new Date().toLocaleTimeString());
+        log('🔄 LOOP #'+loopCount+' | '+kmh.toFixed(1)+' km/h | lag='+lag+'s | '+(document.hidden?'🌙 FONDO':'☀️ FRENTE'),'beep');
+        setCheck('loop','ok',loopCount+' activaciones');
       },
-      (err)=>{
-        // Timeout es normal, ignorar
-        if(err.code!==3){
-          log(`⚠️ Loop GPS err ${err.code}: ${err.message}`,'warn');
-        }
-      },
+      function(err){if(err.code!==3)log('⚠ Loop err '+err.code,'warn');},
       {enableHighAccuracy:true,maximumAge:2000,timeout:4000}
     );
   },1500);
 }
 
-// ── VISIBILITYCHANGE ──────────────────────────────────────
-document.addEventListener('visibilitychange',async()=>{
+function startVoz(){
+  if(!window.speechSynthesis){setCheck('voz','fail','No disponible');return;}
+  var u=new SpeechSynthesisUtterance('velocimetro activo');
+  u.lang='es-PE';u.volume=0.4;u.rate=1.2;
+  u.onstart=function(){setCheck('voz','ok');setCard('dVoz','OK','green');log('✓ Voz iniciada | fondo='+document.hidden,'info');};
+  u.onend=function(){log('🔇 Voz terminó','sys');};
+  u.onerror=function(e){setCheck('voz','warn','Error: '+e.error);setCard('dVoz','ERR','red');log('⚠ Voz error: '+e.error,'warn');};
+  window.speechSynthesis.speak(u);
+  vozTimer=setInterval(function(){
+    if(!running)return;
+    if(window.speechSynthesis.paused)window.speechSynthesis.resume();
+  },10000);
+}
+
+document.addEventListener('visibilitychange',function(){
   if(document.hidden){
-    setCard('dVisible','SEGUNDO PLANO','yellow');
+    inBg=true;prevKmhBeforeBg=lastGpsKmh;lastBgKmh=null;bgGpsOk=false;
+    setCard('dVis','SEGUNDO PLANO','yellow');
     log('🌙 APP FUE AL FONDO','bg');
-    // Reanudar audio si fue suspendido
-    if(audioCtx&&audioCtx.state==='suspended'){
-      try{await audioCtx.resume();log('✅ AudioContext reanudado','info');}catch(e){}
-    }
+    setCheck('bg','test','Esperando GPS en fondo...');
+    if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().catch(function(){});
   } else {
-    setCard('dVisible','PRIMER PLANO','green');
+    inBg=false;
+    setCard('dVis','PRIMER PLANO','green');
     log('☀️ APP VOLVIÓ AL FRENTE — recuperando estado...','info');
     log('📋 Últimas 5 entradas mientras estabas en fondo:','sys');
-    // Re-adquirir wake lock
-    try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
-    // Reactivar audio
-    if(audioCtx&&audioCtx.state==='suspended'){
-      try{await audioCtx.resume();setCard('dAudio',audioCtx.state,'green');}catch(e){}
-    }
+    setTimeout(function(){
+      if(bgGpsOk){
+        setCheck('bg','ok','GPS actualizó: '+(lastBgKmh||0).toFixed(1)+' km/h');
+        log('✓ GPS Fondo: actualizó correctamente ('+(lastBgKmh||0).toFixed(1)+' km/h)','ok');
+      } else {
+        setCheck('bg','fail','GPS NO actualizó en segundo plano');
+        log('✗ GPS Fondo: NO se actualizó','error');
+        log('  → Firefox Android congela el GPS en fondo','warn');
+        log('  → La voz usa el último valor conocido','warn');
+        log('  → Considera usar Chrome o ajustes de batería','warn');
+      }
+    },2000);
+    if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(function(){});
+    if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().then(function(){setCard('dAudio',audioCtx.state,'green');}).catch(function(){});
   }
 });
 
-// ── PERMISOS ──────────────────────────────────────────────
-async function requestPerms(){
-  if('Notification' in window){
-    const r=await Notification.requestPermission();
-    log(`${r==='granted'?'✅':'❌'} Notificaciones: ${r.toUpperCase()}`,'info');
-  }
-  if('wakeLock' in navigator){
-    try{
-      wakeLock=await navigator.wakeLock.request('screen');
-      log('✅ Wake Lock adquirido — pantalla no se apagará','info');
-    }catch(e){log('⚠️ Wake Lock no disponible: '+e.message,'warn');}
-  } else {
-    log('⚠️ Wake Lock NO soportado en este navegador','warn');
-  }
-}
-
-// ── TOGGLE ────────────────────────────────────────────────
-async function toggle(){
-  if(running){stopDiag();}else{await startDiag();}
-}
+async function toggle(){if(running)stopDiag();else await startDiag();}
 
 async function startDiag(){
   clearLog();
-  tickCount=0; gpsCount=0; loopCount=0;
-  lastGpsTime=Date.now();
+  tickCount=0;watchCount=0;loopCount=0;lastGpsTs=Date.now();bgGpsOk=false;inBg=false;
+  checkScores={};
+  CHECKS.forEach(function(id){setCheck(id,'pend');});
   running=true;
-  document.getElementById('btnStart').textContent='⏹ DETENER';
-  document.getElementById('btnStart').classList.add('active');
+  document.getElementById('btnMain').textContent='⏹ DETENER';
+  document.getElementById('btnMain').classList.add('active');
 
-  log(`Dispositivo: ${navigator.userAgent.slice(0,80)}`,'sys');
-  log(`Hora: ${new Date().toLocaleString()}`,'sys');
+  log('Dispositivo: '+navigator.userAgent.slice(0,80),'sys');
+  log('Hora: '+new Date().toLocaleString(),'sys');
 
-  await requestPerms();
+  // Wake Lock
+  if('wakeLock' in navigator){
+    try{wakeLock=await navigator.wakeLock.request('screen');setCheck('wake','ok');log('✓ Wake Lock adquirido','ok');}
+    catch(e){setCheck('wake','fail',e.message);log('✗ Wake Lock: '+e.message,'error');}
+  } else {setCheck('wake','fail','No soportado en Firefox');log('✗ Wake Lock: no soportado','error');}
+
+  // Audio
   initAudio();
-  startWatch();
-  startGPSLoop();
-  startTick();
-  startVozTest();
 
-  log('──── Ahora MINIMIZA la app y espera 30 segundos ────','warn');
-  log('──── Luego vuelve y verás qué siguió funcionando ────','warn');
+  // Notificaciones
+  if(!('Notification' in window)){setCheck('notif','fail','No soportado');log('✗ Notificaciones: no soportadas','error');}
+  else if(Notification.permission==='granted'){setCheck('notif','ok');log('✓ Notificaciones: ya concedidas','ok');}
+  else{
+    var r=await Notification.requestPermission();
+    setCheck('notif',r==='granted'?'ok':'fail');
+    log((r==='granted'?'✓':'✗')+' Notificaciones: '+r,'info');
+  }
+
+  // GPS check inicial
+  if(!navigator.geolocation){setCheck('gps','fail','No disponible');log('✗ GPS: no disponible','error');stopDiag();return;}
+  setCheck('gps','test','Esperando primera posición...');
+
+  // Voz
+  startVoz();
+
+  // GPS
+  startWatch();
+  startLoop();
+  startTick();
+
+  setCard('dVis','PRIMER PLANO','green');
+  log('──── Ahora MINIMIZA y usa otra app 30s ────','warn');
+  log('──── Luego vuelve para ver el resultado ────','warn');
+  setTimeout(runChecklist,4000);
 }
 
 function stopDiag(){
   running=false;
   if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}
-  if(tickTimer){clearInterval(tickTimer);tickTimer=null;}
-  if(bgLoopTimer){clearInterval(bgLoopTimer);bgLoopTimer=null;}
-  if(gpsLoopTimer){clearInterval(gpsLoopTimer);gpsLoopTimer=null;}
-  if(vozTimer){clearInterval(vozTimer);vozTimer=null;}
-  if(audioCtx){try{audioCtx.suspend();}catch(e){}}
-  document.getElementById('btnStart').textContent='▶ INICIAR DIAGNÓSTICO';
-  document.getElementById('btnStart').classList.remove('active');
-  setCard('dVisible','DETENIDO','red');
+  if(tickTimer)clearInterval(tickTimer);
+  if(bgTimer)clearInterval(bgTimer);
+  if(loopTimer)clearInterval(loopTimer);
+  if(vozTimer)clearInterval(vozTimer);
+  tickTimer=bgTimer=loopTimer=vozTimer=null;
+  if(audioCtx)try{audioCtx.suspend();}catch(e){}
+  document.getElementById('btnMain').textContent='▶ INICIAR DIAGNÓSTICO';
+  document.getElementById('btnMain').classList.remove('active');
+  setCard('dVis','DETENIDO','red');
   log('──── DIAGNÓSTICO DETENIDO ────','error');
+  runChecklist();
 }
 
-log('Esperando inicio del diagnóstico...','sys');
-log('Presiona INICIAR → minimiza la app 30s → vuelve','sys');
+log('Listo. Presiona INICIAR para comenzar.','sys');
+log('Luego minimiza la app 30s y vuelve para ver resultados.','sys');
 </script>
 </body>
 </html>
