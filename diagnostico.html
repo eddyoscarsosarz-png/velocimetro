@@ -56,7 +56,13 @@ h1{font-size:0.7rem;letter-spacing:0.25em;color:#00e5ff;text-align:center;paddin
 </style>
 </head>
 <body>
-<h1>🛰 VELOLIMA — DIAGNÓSTICO AVANZADO v2</h1>
+<h1>🛰 VELOLIMA — DIAGNÓSTICO AVANZADO v3</h1>
+
+<!-- Banner PWA -->
+<div id="pwaBanner" style="width:100%;max-width:460px;background:rgba(0,229,255,0.06);border:1px solid rgba(0,229,255,0.2);border-radius:8px;padding:8px 14px;font-size:0.48rem;color:rgba(0,229,255,0.7);letter-spacing:0.05em;line-height:1.7;display:none;">
+  📲 <strong>Para GPS en fondo: instala como PWA</strong><br>
+  Chrome → ⋮ → "Añadir a pantalla de inicio" → GPS funciona como Waze ✓
+</div>
 
 <div class="checklist">
   <div class="cl-header"><span>✅ CHECKLIST DE FUNCIONAMIENTO</span><span class="cl-score" id="clScore">0/9</span></div>
@@ -101,6 +107,10 @@ var audioCtx=null,bgTimer=null,tickTimer=null,loopTimer=null,vozTimer=null;
 var wakeLock=null,inBg=false,bgGpsOk=false;
 var logLines=[],checkScores={};
 var CHECKS=['gps','notif','wake','audio','media','voz','watch','loop','bg'];
+var isPWA = window.matchMedia('(display-mode: standalone)').matches
+         || window.navigator.standalone === true;
+// Mostrar banner de instalación si no es PWA
+if(!isPWA){ document.getElementById('pwaBanner').style.display='block'; }
 
 function ts(){var n=new Date();return'['+pad(n.getHours())+':'+pad(n.getMinutes())+':'+pad(n.getSeconds())+']';}
 function pad(v){return String(v).padStart(2,'0');}
@@ -194,29 +204,54 @@ function initAudio(){
     audioCtx=new AC();
     setCheck('audio','ok','Estado: '+audioCtx.state);
     log('✓ AudioContext creado: '+audioCtx.state,'ok');
+
+    // Oscilador real a 20Hz (inaudible) — mantiene proceso vivo en fondo
+    // Esta es la misma técnica que usa Waze/Maps
+    try{
+      var osc=audioCtx.createOscillator();
+      var gain=audioCtx.createGain();
+      gain.gain.value=0.001; // inaudible
+      osc.frequency.value=20; // 20Hz infrasónico
+      osc.type='sine';
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      log('✓ Oscilador 20Hz activo (keep-alive audio real)','ok');
+    }catch(e){ log('⚠ Oscilador: '+e.message,'warn'); }
+
     if('mediaSession' in navigator){
       try{
-        navigator.mediaSession.metadata=new MediaMetadata({title:'VeloLima GPS',artist:'Diagnostico'});
+        navigator.mediaSession.metadata=new MediaMetadata({title:'VeloLima GPS',artist:'Diagnóstico activo'});
         navigator.mediaSession.playbackState='playing';
-        ['play','pause','stop','seekbackward','seekforward'].forEach(function(a){try{navigator.mediaSession.setActionHandler(a,function(){});}catch(e){}});
-        setCheck('media','ok');log('✓ MediaSession registrada','ok');
+        ['play','pause','stop'].forEach(function(a){try{navigator.mediaSession.setActionHandler(a,function(){
+          if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().catch(function(){});
+        });}catch(e){}});
+        setCheck('media','ok');log('✓ MediaSession registrada (app de audio ✓)','ok');
       }catch(e){setCheck('media','warn',e.message);}
     } else {setCheck('media','warn','No soportado');}
-    function beep(){
-      try{
-        if(audioCtx.state==='suspended')audioCtx.resume();
-        var osc=audioCtx.createOscillator(),g=audioCtx.createGain();
-        g.gain.setValueAtTime(0.12,audioCtx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.08);
-        osc.frequency.value=880;osc.type='sine';
-        osc.connect(g);g.connect(audioCtx.destination);
-        osc.start();osc.stop(audioCtx.currentTime+0.08);
-        log('🔔 Beep keep-alive | audio='+audioCtx.state+' | fondo='+document.hidden,'beep');
-        setCard('dAudio',audioCtx.state,audioCtx.state==='running'?'green':'yellow');
-      }catch(e){}
-    }
-    beep();
-    bgTimer=setInterval(beep,25000);
+
+    // Beep inicial
+    try{
+      if(audioCtx.state==='suspended')audioCtx.resume();
+      var o2=audioCtx.createOscillator(),g2=audioCtx.createGain();
+      g2.gain.setValueAtTime(0.12,audioCtx.currentTime);
+      g2.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.08);
+      o2.frequency.value=880;o2.type='sine';
+      o2.connect(g2);g2.connect(audioCtx.destination);
+      o2.start();o2.stop(audioCtx.currentTime+0.08);
+      log('🔔 Beep keep-alive | audio='+audioCtx.state+' | fondo='+document.hidden,'beep');
+      setCard('dAudio',audioCtx.state,audioCtx.state==='running'?'green':'yellow');
+    }catch(e){}
+
+    bgTimer=setInterval(function(){
+      if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().catch(function(){});
+      setCard('dAudio',audioCtx?audioCtx.state:'--',audioCtx&&audioCtx.state==='running'?'green':'yellow');
+    },15000);
+
+    // Log estado PWA
+    log('Modo PWA: '+(isPWA?'✓ INSTALADA — GPS en fondo disponible':'✗ Navegador — GPS en fondo limitado')
+      , isPWA?'ok':'warn');
+
   }catch(e){setCheck('audio','fail',e.message);log('✗ Audio: '+e.message,'error');}
 }
 
@@ -246,7 +281,15 @@ function startWatch(){
     function(err){
       var m={1:'Permiso denegado',2:'Sin señal',3:'Timeout'};
       log('⚠ GPS watch err '+err.code+': '+(m[err.code]||'desconocido'),'warn');
-      if(err.code===1){setCheck('gps','fail','Permiso denegado');stopDiag();}
+      if(err.code===1){
+        setCheck('gps','fail','Permiso denegado');
+        log('──── GPS BLOQUEADO ────','error');
+        log('  → En Firefox: toca el icono 🔒 en la barra de URL','warn');
+        log('  → Selecciona "Ubicación" → "Permitir"','warn');
+        log('  → Luego recarga y vuelve a iniciar el diagnóstico','warn');
+        log('  → O usa Chrome Android para mejores resultados','warn');
+        stopDiag();
+      }
     },
     {enableHighAccuracy:true,maximumAge:0,timeout:10000}
   );
@@ -303,14 +346,23 @@ document.addEventListener('visibilitychange',function(){
     log('📋 Últimas 5 entradas mientras estabas en fondo:','sys');
     setTimeout(function(){
       if(bgGpsOk){
-        setCheck('bg','ok','GPS actualizó: '+(lastBgKmh||0).toFixed(1)+' km/h');
+        setCheck('bg','ok','GPS actualizó en fondo: '+(lastBgKmh||0).toFixed(1)+' km/h');
         log('✓ GPS Fondo: actualizó correctamente ('+(lastBgKmh||0).toFixed(1)+' km/h)','ok');
+        log('  → La voz de alerta usará datos GPS reales ✓','ok');
       } else {
-        setCheck('bg','fail','GPS NO actualizó en segundo plano');
-        log('✗ GPS Fondo: NO se actualizó','error');
-        log('  → Firefox Android congela el GPS en fondo','warn');
-        log('  → La voz usa el último valor conocido','warn');
-        log('  → Considera usar Chrome o ajustes de batería','warn');
+        setCheck('bg','fail','GPS congelado en segundo plano');
+        log('✗ GPS Fondo: NO se actualizó (GPS CONGELADO)','error');
+        if(isPWA){
+          log('  → Modo PWA activo pero GPS congelado','warn');
+          log('  → Android: Ajustes > Apps > Chrome > Batería > Sin restricción','warn');
+          log('  → Android: Ajustes > Ubicación > Permisos de app > Chrome > Siempre','warn');
+        } else {
+          log('  → SOLUCIÓN PRINCIPAL: Instala como PWA desde Chrome','warn');
+          log('  → Chrome → ⋮ → "Añadir a pantalla de inicio"','warn');
+          log('  → La app instalada tiene GPS en fondo como Waze ✓','warn');
+          log('  → SOLUCIÓN ALTERNA: Ajustes > Apps > Chrome > Batería > Sin restricción','warn');
+        }
+        log('  → PARCHE ACTIVO: Voz silenciada si GPS >8s sin datos (no repetirá)','info');
       }
     },2000);
     if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(function(){});
@@ -331,6 +383,8 @@ async function startDiag(){
 
   log('Dispositivo: '+navigator.userAgent.slice(0,80),'sys');
   log('Hora: '+new Date().toLocaleString(),'sys');
+  log('Modo: '+(isPWA?'✓ PWA INSTALADA':'✗ Navegador normal'),'sys');
+  if(!isPWA) log('  → Instala como PWA para GPS en fondo (Chrome → ⋮ → Añadir a pantalla)','warn');
 
   // Wake Lock
   if('wakeLock' in navigator){
