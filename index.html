@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>VeloLima GPS</title>
+<!-- PWA Manifest inline para instalación desde Chrome -->
+<link rel="manifest" id="pwaManifest">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -356,6 +358,17 @@ body.night .night-badge { display: block; }
 
   <button class="btn-start" id="btnStart" onclick="toggleGPS()">⬡ INICIAR GPS</button>
   <div class="error-msg" id="errorMsg"></div>
+
+  <!-- BANNER DE INSTALACIÓN PWA -->
+  <div id="pwaInstallBanner" style="display:none;margin-top:10px;width:100%;background:rgba(0,229,255,0.07);border:1px solid rgba(0,229,255,0.25);border-radius:10px;padding:12px 16px;font-family:'Share Tech Mono',monospace;font-size:0.52rem;color:rgba(0,229,255,0.8);line-height:1.8;letter-spacing:0.05em;">
+    📲 <strong style="color:#00e5ff">INSTALA COMO APP PARA GPS EN FONDO</strong><br>
+    Chrome → ⋮ menú → "Añadir a pantalla de inicio"<br>
+    <span style="color:rgba(255,255,255,0.4)">La app instalada mantiene GPS activo como Waze ✓</span>
+    <div style="margin-top:8px;display:flex;gap:8px;">
+      <button onclick="installPWA()" style="flex:1;font-family:'Share Tech Mono',monospace;font-size:0.5rem;padding:6px;border-radius:6px;border:1px solid rgba(0,229,255,0.4);background:rgba(0,229,255,0.1);color:#00e5ff;cursor:pointer;letter-spacing:0.1em;">⬇ INSTALAR APP</button>
+      <button onclick="document.getElementById('pwaInstallBanner').style.display='none'" style="font-family:'Share Tech Mono',monospace;font-size:0.5rem;padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:rgba(255,255,255,0.3);cursor:pointer;">✕</button>
+    </div>
+  </div>
 </div>
 
 <!-- AUDIO SILENCIOSO para mantener segundo plano -->
@@ -363,6 +376,38 @@ body.night .night-badge { display: block; }
 
 <script>
 // ── ARC GEOMETRY ──────────────────────────────────────────
+// ── PWA INSTALL ───────────────────────────────────────────
+let _pwaInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _pwaInstallPrompt = e;
+  // Mostrar banner de instalación si no está instalada como PWA
+  if(!window.matchMedia('(display-mode: standalone)').matches){
+    document.getElementById('pwaInstallBanner').style.display = 'block';
+  }
+});
+
+function installPWA(){
+  if(_pwaInstallPrompt){
+    _pwaInstallPrompt.prompt();
+    _pwaInstallPrompt.userChoice.then(r=>{
+      if(r.outcome==='accepted'){
+        document.getElementById('pwaInstallBanner').style.display='none';
+      }
+    });
+  } else {
+    // Fallback manual
+    alert('En Chrome: toca ⋮ (tres puntos) → "Añadir a pantalla de inicio"\nEn Firefox: ⋮ → "Instalar"\nUna vez instalada, el GPS funciona en segundo plano ✓');
+  }
+}
+
+// Si ya está instalada como PWA, ocultar el banner
+if(window.matchMedia('(display-mode: standalone)').matches){
+  // Es PWA instalada → GPS en fondo disponible ✓
+  console.log('[VeloLima] Corriendo como PWA instalada — GPS en fondo activo');
+}
+
+// ── ARC GEOMETRY REAL ─────────────────────────────────────
 const CX=140,CY=140,R=118,START_DEG=130,END_DEG=410,MAX_SPEED=200;
 function polar(cx,cy,r,deg){const rad=(deg-90)*Math.PI/180;return{x:cx+r*Math.cos(rad),y:cy+r*Math.sin(rad)};}
 function arcPath(cx,cy,r,s,e){const a=polar(cx,cy,r,s),b=polar(cx,cy,r,e);return `M ${a.x} ${a.y} A ${r} ${r} 0 ${(e-s)>180?1:0} 1 ${b.x} ${b.y}`;}
@@ -438,52 +483,176 @@ function checkNightMode(){
 checkNightMode();
 setInterval(checkNightMode,60000);
 
-// ── SEGUNDO PLANO — Audio silencioso ──────────────────────
+let _watchdogTimer = null;
+let _gpsWasFrozen = false; // flag para saber si el GPS estuvo congelado
+
+// Watchdog: revisa cada 5s si el GPS sigue vivo
+// Si lleva >8s sin datos → marcar como congelado y actualizar status
+function _startWatchdog(){
+  if(_watchdogTimer) return;
+  _watchdogTimer = setInterval(()=>{
+    if(!isRunning) return;
+    const age = Date.now() - _lastGpsTs;
+    if(age > 8000 && !_gpsWasFrozen){
+      _gpsWasFrozen = true;
+      // GPS congelado en fondo — no actualizar velocidad, no repetir voz
+      if(document.hidden){
+        setStatus('GPS EN ESPERA',false);
+      }
+    } else if(age < 4000 && _gpsWasFrozen){
+      _gpsWasFrozen = false; // GPS se reactivó
+    }
+  }, 5000);
+}
+
+function _stopWatchdog(){
+  if(_watchdogTimer){ clearInterval(_watchdogTimer); _watchdogTimer = null; }
+  _gpsWasFrozen = false;
+}
+
+// ── PWA MANIFEST — Necesario para GPS en fondo con Chrome ─
+(function(){
+  const manifest = {
+    name: 'VeloLima GPS',
+    short_name: 'VeloLima',
+    description: 'Alerta de velocidad GPS para Lima, Perú',
+    start_url: './',
+    display: 'standalone',
+    background_color: '#0a0c10',
+    theme_color: '#00e5ff',
+    orientation: 'portrait',
+    icons: [
+      { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" fill="%230a0c10"/><text y="140" font-size="130" text-anchor="middle" x="96">🛰</text></svg>', sizes: '192x192', type: 'image/svg+xml' },
+      { src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="%230a0c10"/><text y="380" font-size="350" text-anchor="middle" x="256">🛰</text></svg>', sizes: '512x512', type: 'image/svg+xml' }
+    ]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], {type:'application/json'});
+  document.getElementById('pwaManifest').href = URL.createObjectURL(blob);
+})();
+
+// ── AUDIO REAL EN FONDO — Clave para mantener proceso vivo ─
+// Chrome/Firefox Android matan el proceso si no hay audio real.
+// Reproducimos un tono de 20Hz (inaudible para humanos) en loop.
+// Esto es lo mismo que hacen apps de música/navegación.
+let _bgAudioCtx = null;
+let _bgAudioSrc = null;
+let _bgAudioStarted = false;
+
 function initBackgroundAudio(){
-  // Genera un AudioContext con un buffer silencioso y lo reproduce en loop
-  // Esto previene que Android suspenda el proceso del navegador
   try{
-    const AudioCtx=window.AudioContext||window.webkitAudioContext;
-    if(!AudioCtx) return;
-    const ctx=new AudioCtx();
-    const buf=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);
-    const src=ctx.createBufferSource();
-    src.buffer=buf; src.loop=true;
-    src.connect(ctx.destination);
-    src.start(0);
-    // Keep alive: desconectar y reconectar cada 25s para evitar que el sistema lo mate
-    setInterval(()=>{
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if(!AudioCtx){ setPerm('permBg','fail'); return; }
+
+    _bgAudioCtx = new AudioCtx();
+
+    // Crear oscilador a 20Hz (sub-sónico, inaudible) — mantiene proceso activo
+    // igual que lo hace Spotify/Maps cuando "reproducen" en fondo
+    function crearOscilador(){
       try{
-        const s2=ctx.createBufferSource();
-        s2.buffer=buf; s2.loop=true;
-        s2.connect(ctx.destination); s2.start(0);
-        setTimeout(()=>{ try{s2.stop();}catch(e){} },100);
-      }catch(e){}
-    },25000);
+        if(_bgAudioCtx.state === 'suspended') _bgAudioCtx.resume();
+        const osc = _bgAudioCtx.createOscillator();
+        const gain = _bgAudioCtx.createGain();
+        gain.gain.value = 0.001; // volumen casi cero, inaudible
+        osc.frequency.value = 20; // 20Hz = infrasónico
+        osc.type = 'sine';
+        osc.connect(gain);
+        gain.connect(_bgAudioCtx.destination);
+        osc.start();
+        _bgAudioSrc = osc;
+        return osc;
+      }catch(e){ return null; }
+    }
+
+    crearOscilador();
+
+    // Registrar como reproductor de medios — Android muestra ícono en notif bar
+    // Esto le dice al OS que somos una app de audio activa (como Maps/Waze)
+    if('mediaSession' in navigator){
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'VeloLima — GPS Activo',
+        artist: 'Alerta de velocidad',
+        album: 'Lima, Perú'
+      });
+      navigator.mediaSession.playbackState = 'playing';
+      // Handlers para evitar que el OS pause el audio
+      ['play','pause','stop'].forEach(a=>{
+        try{ navigator.mediaSession.setActionHandler(a, ()=>{
+          // Si el OS intenta pausar, re-activamos el audio
+          if(_bgAudioCtx && _bgAudioCtx.state==='suspended'){
+            _bgAudioCtx.resume().catch(()=>{});
+          }
+        }); }catch(e){}
+      });
+    }
+
+    // Keep-alive: reanuda el contexto cada 15s si se suspendió
+    setInterval(()=>{
+      if(!isRunning) return;
+      if(_bgAudioCtx && _bgAudioCtx.state === 'suspended'){
+        _bgAudioCtx.resume().then(()=>{
+          // Re-crear oscilador si se perdió
+          if(!_bgAudioSrc) crearOscilador();
+        }).catch(()=>{});
+      }
+    }, 15000);
+
     setPerm('permBg','ok');
   }catch(e){
     setPerm('permBg','fail');
   }
 }
 
-// Service Worker keep-alive
+// ── SERVICE WORKER — Keep-alive + sincronización GPS ──────
 if('serviceWorker' in navigator){
   const swCode=`
-    self.addEventListener('install',()=>self.skipWaiting());
-    self.addEventListener('activate',e=>e.waitUntil(clients.claim()));
-    let keepAlive=null;
-    self.addEventListener('message',msg=>{
-      if(msg.data==='start-keepalive'){
-        if(keepAlive) clearInterval(keepAlive);
-        keepAlive=setInterval(()=>{ self.clients.matchAll().then(cls=>cls.forEach(c=>c.postMessage('ping'))); },20000);
+    self.addEventListener('install', ()=> self.skipWaiting());
+    self.addEventListener('activate', e=> e.waitUntil(clients.claim()));
+
+    let keepAliveTimer = null;
+    let lastGpsData = null;
+
+    // Recibe GPS data desde la página principal y la guarda
+    self.addEventListener('message', msg => {
+      if(msg.data && msg.data.type === 'gps-update'){
+        lastGpsData = msg.data;
+      }
+      if(msg.data === 'start-keepalive' || (msg.data && msg.data.type === 'start-keepalive')){
+        startKeepAlive();
       }
     });
+
+    function startKeepAlive(){
+      if(keepAliveTimer) clearInterval(keepAliveTimer);
+      // Ping a todos los clientes cada 10s para mantener proceso vivo
+      keepAliveTimer = setInterval(() => {
+        self.clients.matchAll().then(clients => {
+          clients.forEach(c => c.postMessage({ type: 'sw-ping', ts: Date.now() }));
+        });
+      }, 10000);
+    }
+
+    // Interceptar fetch para responder offline
+    self.addEventListener('fetch', e => {
+      e.respondWith(fetch(e.request).catch(() => new Response('offline')));
+    });
   `;
-  const swBlob=new Blob([swCode],{type:'application/javascript'});
-  const swUrl=URL.createObjectURL(swBlob);
-  navigator.serviceWorker.register(swUrl,{scope:'./'}).then(reg=>{
-    if(reg.active) reg.active.postMessage('start-keepalive');
-    reg.addEventListener('updatefound',()=>{ if(reg.installing) reg.installing.postMessage('start-keepalive'); });
+  const swBlob = new Blob([swCode], {type:'application/javascript'});
+  const swUrl = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swUrl, {scope:'./'}).then(reg => {
+    const sw = reg.active || reg.installing || reg.waiting;
+    if(sw) sw.postMessage('start-keepalive');
+    reg.addEventListener('updatefound', () => {
+      if(reg.installing) reg.installing.postMessage('start-keepalive');
+    });
+    // Escuchar pings del SW — mantiene el canal de comunicación vivo
+    navigator.serviceWorker.addEventListener('message', e => {
+      if(e.data && e.data.type === 'sw-ping' && isRunning){
+        // Re-activar audio si se suspendió
+        if(_bgAudioCtx && _bgAudioCtx.state === 'suspended'){
+          _bgAudioCtx.resume().catch(()=>{});
+        }
+      }
+    });
   }).catch(()=>{});
 }
 
@@ -508,8 +677,43 @@ async function requestWakeLock(){
   // Re-adquirir wake lock al volver al primer plano
   document.addEventListener('visibilitychange',async()=>{
     if(document.visibilityState==='visible'&&isRunning){
+      // 1. Re-adquirir wake lock
       try{if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
-      if(isOverLimit) speak(Math.round(currentSpeed));
+
+      // 2. Re-activar audio (crítico para siguiente periodo en fondo)
+      if(_bgAudioCtx && _bgAudioCtx.state === 'suspended'){
+        _bgAudioCtx.resume().catch(()=>{});
+      }
+
+      // 3. Si el GPS no llegó datos en >10s mientras estábamos en fondo,
+      //    reiniciar el watchPosition — puede haberse desconectado
+      const gpsAge = Date.now() - _lastGpsTs;
+      if(gpsAge > 10000 && watchId !== null){
+        navigator.geolocation.clearWatch(watchId);
+        watchId = navigator.geolocation.watchPosition(onPosition, onError,
+          {enableHighAccuracy:true, maximumAge:0, timeout:10000});
+        _lastGpsTs = Date.now();
+        setStatus('RECONECTANDO GPS...',false);
+      }
+
+      // 4. Hablar UNA VEZ con dato fresco (esperar 1.5s al GPS)
+      if(isOverLimit){
+        setTimeout(()=>{
+          if(isOverLimit && isRunning){
+            const age = Date.now() - _lastGpsTs;
+            if(age < 6000) speak(Math.round(currentSpeed));
+          }
+        }, 1500);
+      }
+    } else if(document.visibilityState === 'hidden' && isRunning){
+      // App va al fondo — asegurar audio activo ANTES de ir al fondo
+      if(_bgAudioCtx && _bgAudioCtx.state === 'suspended'){
+        _bgAudioCtx.resume().catch(()=>{});
+      }
+      // Actualizar mediaSession para que Android sepa que seguimos activos
+      if('mediaSession' in navigator){
+        navigator.mediaSession.playbackState = 'playing';
+      }
     }
   });
 }
@@ -718,30 +922,79 @@ function vibrarExceso(exceso){
   else vibrar([500,100,500,100,500,100,500]);
 }
 
-// ── VOICE ─────────────────────────────────────────────────
+// ── VOICE — Sistema robusto para Android fondo ────────────
+// Problema Android: speechSynthesis se pausa/cancela en fondo.
+// Solución: usar utterance con onend para re-encadenar, y resume() periódico.
+let _vozActiva = false;
+let _vozTexto = '';
+let _vozResumeTimer = null;
+
 function speak(text){
   if(!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(String(text));
-  u.lang='es-PE'; u.rate=1.1; u.volume=1; u.pitch=1.1;
-  const voices=window.speechSynthesis.getVoices();
-  const esVoice=voices.find(v=>v.lang.startsWith('es'));
-  if(esVoice) u.voice=esVoice;
-  window.speechSynthesis.speak(u);
+  _vozTexto = String(text);
+
+  // Cancelar lo que esté corriendo
+  try{ window.speechSynthesis.cancel(); }catch(e){}
+
+  // Pequeño delay para que el cancel surta efecto en Android
+  setTimeout(()=>{
+    _hablar(_vozTexto);
+  }, 100);
 }
-speechSynthesis.onvoiceschanged=()=>{};
+
+function _hablar(text){
+  if(!window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'es-PE';
+  u.rate = 1.1;
+  u.volume = 1;
+  u.pitch = 1.1;
+
+  const voices = window.speechSynthesis.getVoices();
+  const esVoice = voices.find(v => v.lang.startsWith('es'));
+  if(esVoice) u.voice = esVoice;
+
+  _vozActiva = true;
+  window.speechSynthesis.speak(u);
+
+  // Android fix: si speechSynthesis se pausa en fondo, hacer resume()
+  // Chrome Android lo necesita cada pocos segundos
+  if(_vozResumeTimer) clearInterval(_vozResumeTimer);
+  _vozResumeTimer = setInterval(()=>{
+    if(window.speechSynthesis.paused || window.speechSynthesis.pending){
+      try{ window.speechSynthesis.resume(); }catch(e){}
+    }
+  }, 2000);
+
+  u.onend = ()=>{
+    _vozActiva = false;
+    if(_vozResumeTimer){ clearInterval(_vozResumeTimer); _vozResumeTimer = null; }
+  };
+  u.onerror = ()=>{
+    _vozActiva = false;
+    if(_vozResumeTimer){ clearInterval(_vozResumeTimer); _vozResumeTimer = null; }
+  };
+}
+
+function stopVoiceAll(){
+  _vozActiva = false;
+  if(_vozResumeTimer){ clearInterval(_vozResumeTimer); _vozResumeTimer = null; }
+  try{ window.speechSynthesis.cancel(); }catch(e){}
+}
+
+speechSynthesis.onvoiceschanged = ()=>{};
 
 function startVoiceAlert(){
   if(voiceInterval) return;
   speak(Math.round(currentSpeed));
-  voiceInterval=setInterval(()=>{
-    if(currentSpeed>=speedLimit) speak(Math.round(currentSpeed));
-  },4000);
+  voiceInterval = setInterval(()=>{
+    if(currentSpeed >= speedLimit) speak(Math.round(currentSpeed));
+  }, 4000);
 }
 
 function stopVoiceAlert(){
-  if(voiceInterval){clearInterval(voiceInterval);voiceInterval=null;}
-  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  if(voiceInterval){ clearInterval(voiceInterval); voiceInterval = null; }
+  stopVoiceAll();
 }
 
 // ── BACKGROUND NOTIFICATIONS ──────────────────────────────
@@ -858,11 +1111,16 @@ function _calcSpeedFromPos(pos1, pos2){
 }
 
 // Timer de voz independiente — corre aunque el GPS esté congelado
+// ANTI-FREEZE: No hablar si el GPS lleva más de 8s sin actualizar
 function _startVoiceTimer(){
   if(_voiceTimer) return;
   _voiceTimer = setInterval(()=>{
-    if(!isRunning) return;
-    if(isOverLimit && window.speechSynthesis && !window.speechSynthesis.speaking){
+    if(!isRunning || !isOverLimit) return;
+    // Verificar que el GPS está activo (dato fresco < 8s)
+    const gpsAge = Date.now() - _lastGpsTs;
+    if(gpsAge > 8000) return; // GPS congelado en fondo → NO hablar
+    if(!window.speechSynthesis) return;
+    if(!window.speechSynthesis.speaking && !_vozActiva){
       speak(Math.round(currentSpeed));
     }
   }, 4000);
@@ -875,15 +1133,22 @@ function _stopVoiceTimer(){
 // GPS loop backup con getCurrentPosition
 function _startGPSLoop(){
   if(_gpsLoopTimer) return;
-  let lastLoopTime = Date.now();
   _gpsLoopTimer = setInterval(()=>{
     if(!isRunning) return;
     const sinceLastGps = Date.now() - _lastGpsTs;
     if(sinceLastGps < 3000) return; // watchPosition sigue vivo
+    // En segundo plano Firefox congela el GPS — maximumAge:0 fuerza lectura real
+    // pero si sigue sin responder, el GPS está suspendido por el sistema
     navigator.geolocation.getCurrentPosition(
-      (pos)=>{ _lastGpsTs = Date.now(); onPosition(pos); },
+      (pos)=>{
+        // Verificar que el dato es realmente nuevo (no caché viejo)
+        const posAge = Date.now() - pos.timestamp;
+        if(posAge > 10000) return; // dato muy viejo, ignorar
+        _lastGpsTs = Date.now();
+        onPosition(pos);
+      },
       (err)=>{ if(err.code !== 3) console.warn('GPS loop:', err.code); },
-      {enableHighAccuracy:true, maximumAge:2000, timeout:4000}
+      {enableHighAccuracy:true, maximumAge:0, timeout:4000}
     );
   }, 1500);
 }
@@ -907,10 +1172,27 @@ async function startGPS(){
   document.getElementById('btnStart').classList.add('stop');
   setPerm('permGPS','ok');
   isRunning=true;
+
+  // Actualizar mediaSession con estado activo
+  if('mediaSession' in navigator){
+    navigator.mediaSession.playbackState = 'playing';
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'VeloLima — GPS Activo',
+      artist: '🛰 Monitoreando velocidad',
+      album: 'Lima, Perú'
+    });
+  }
+
+  // Notificar al SW que inicie keep-alive
+  if(navigator.serviceWorker && navigator.serviceWorker.controller){
+    navigator.serviceWorker.controller.postMessage({type:'start-keepalive'});
+  }
+
   watchId=navigator.geolocation.watchPosition(onPosition, onError,
     {enableHighAccuracy:true, maximumAge:0, timeout:10000});
   _startGPSLoop();
   _startVoiceTimer();
+  _startWatchdog();
 }
 
 function stopGPS(){
@@ -918,6 +1200,7 @@ function stopGPS(){
   watchId=null; isRunning=false;
   _stopGPSLoop();
   _stopVoiceTimer();
+  _stopWatchdog();
   stopVoiceAlert(); stopBgAlerts(); clearAlertUI(); setSpeed(0);
   maxSpeed=0; currentHeading=null; _posBuffer=[];
   document.getElementById('maxSpeed').textContent='--';
@@ -933,7 +1216,19 @@ function stopGPS(){
 let lastPos=null;
 function onPosition(pos){
   _lastGpsTs = Date.now();
+  _gpsWasFrozen = false; // GPS está vivo
   clearError(); setStatus('SEÑAL ACTIVA',true);
+
+  // Notificar posición al Service Worker (para keep-alive en fondo)
+  if(navigator.serviceWorker && navigator.serviceWorker.controller){
+    navigator.serviceWorker.controller.postMessage({
+      type: 'gps-update',
+      lat: pos.coords.latitude,
+      lon: pos.coords.longitude,
+      speed: pos.coords.speed,
+      ts: Date.now()
+    });
+  }
 
   // ── CALCULAR VELOCIDAD DESDE COORDENADAS ─────────────────
   // Guardar posición en buffer (máx 3 para suavizar)
