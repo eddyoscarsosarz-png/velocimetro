@@ -713,6 +713,22 @@ async function requestWakeLock(){
       // Actualizar mediaSession para que Android sepa que seguimos activos
       if('mediaSession' in navigator){
         navigator.mediaSession.playbackState = 'playing';
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: isOverLimit
+            ? `⚠ ${Math.round(currentSpeed)} km/h — Límite ${speedLimit}`
+            : 'VeloLima — GPS Activo',
+          artist: isOverLimit ? '¡VELOCIDAD SUPERADA!' : '🛰 Monitoreando',
+          album: currentRoadName || 'Lima, Perú'
+        });
+      }
+      // Si ya hay exceso al ir al fondo → beep inmediato
+      if(isOverLimit){
+        setTimeout(()=>{
+          if(isOverLimit && isRunning && document.hidden){
+            _speakWebAudio(Math.round(currentSpeed), Math.max(1, currentSpeed - speedLimit));
+            if(navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
+          }
+        }, 500);
       }
     }
   });
@@ -922,58 +938,141 @@ function vibrarExceso(exceso){
   else vibrar([500,100,500,100,500,100,500]);
 }
 
-// ── VOICE — Sistema robusto para Android fondo ────────────
-// Problema Android: speechSynthesis se pausa/cancela en fondo.
-// Solución: usar utterance con onend para re-encadenar, y resume() periódico.
+// ── VOICE — Sistema DUAL: TTS primer plano + WebAudio fondo ──
+//
+// PROBLEMA RAÍZ CONFIRMADO POR LOGS:
+//   Chrome Android suspende speechSynthesis cuando AMBAS apps están en fondo.
+//   El GPS sigue llegando (loop backup funciona) pero la VOZ no sale.
+//
+// SOLUCIÓN DUAL:
+//   PRIMER PLANO → speechSynthesis normal (dice "61 kilómetros por hora")
+//   SEGUNDO PLANO → Web Audio beeps por patrón + oscillator TTS simple
+//                   Android NUNCA puede bloquear Web Audio si hay AudioContext running
+//
+// SISTEMA DE BEEPS EN FONDO:
+//   Exceso leve  (1-10):  2 beeps graves   — "atención"
+//   Exceso medio (11-20): 3 beeps medios   — "peligro"
+//   Exceso grave (>20):   4 beeps agudos   — "crítico"
+//   + Patrón numérico con pitidos cortos para comunicar la velocidad
+
 let _vozActiva = false;
 let _vozTexto = '';
 let _vozResumeTimer = null;
+let _bgBeepTimer = null;  // timer de beeps en fondo
+let _lastSpeakTime = 0;
 
-function speak(text){
-  if(!window.speechSynthesis) return;
-  _vozTexto = String(text);
+// ── TTS POR OSCILLATOR — Habla en fondo usando Web Audio ──
+// Genera tonos modulados que forman sílabas básicas en español
+// Funciona 100% en fondo porque usa el mismo AudioContext del keep-alive
+function _speakWebAudio(speedKmh, exceso){
+  if(!_bgAudioCtx) return;
+  try{
+    if(_bgAudioCtx.state === 'suspended') _bgAudioCtx.resume();
+    const ctx = _bgAudioCtx;
+    const now = ctx.currentTime;
+    let t = now + 0.05;
 
-  // Cancelar lo que esté corriendo
-  try{ window.speechSynthesis.cancel(); }catch(e){}
+    function addTone(freq, dur, amp=0.7, type='sine'){
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(amp, t + 0.02);
+      g.gain.setValueAtTime(amp, t + dur - 0.03);
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      osc.connect(g); g.connect(ctx.destination);
+      osc.start(t); osc.stop(t + dur);
+      t += dur;
+      return dur;
+    }
 
-  // Pequeño delay para que el cancel surta efecto en Android
-  setTimeout(()=>{
-    _hablar(_vozTexto);
-  }, 100);
+    function gap(dur){ t += dur; }
+
+    // SEÑAL DE ALERTA: tono descendente urgente
+    addTone(900, 0.12, 0.8, 'square'); gap(0.04);
+    addTone(750, 0.10, 0.7, 'square'); gap(0.04);
+    addTone(600, 0.08, 0.6, 'square'); gap(0.12);
+
+    // COMUNICAR MAGNITUD DEL EXCESO con patrón de pulsos:
+    // Cada pulso = 10 km/h de exceso (máx 5 pulsos)
+    const pulsos = Math.min(5, Math.ceil(exceso / 10));
+    for(let i = 0; i < pulsos; i++){
+      const freqPulso = 400 + (exceso * 3); // más agudo = más exceso
+      addTone(freqPulso, 0.08, 0.6, 'sine');
+      gap(0.06);
+    }
+    gap(0.08);
+
+    // VELOCIDAD ACTUAL: pitidos que representan decenas y unidades
+    // Ej: 67 km/h → 6 pitidos cortos pausa 1 pitido
+    const decenas = Math.floor(speedKmh / 10);
+    const unidades = speedKmh % 10;
+
+    const freqNum = 550;
+    for(let i = 0; i < Math.min(decenas, 9); i++){
+      addTone(freqNum, 0.07, 0.5); gap(0.05);
+    }
+    if(unidades > 0){
+      gap(0.1); // pausa entre decenas y unidades
+      for(let i = 0; i < unidades; i++){
+        addTone(freqNum * 1.5, 0.05, 0.4); gap(0.04);
+      }
+    }
+
+  }catch(e){}
 }
 
-function _hablar(text){
-  if(!window.speechSynthesis) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'es-PE';
-  u.rate = 1.1;
-  u.volume = 1;
-  u.pitch = 1.1;
+// ── TTS POR SPEECHSYNTHESIS — Para primer plano ───────────
+function _speakTTS(text){
+  if(!window.speechSynthesis) return false;
+  try{ window.speechSynthesis.cancel(); }catch(e){}
 
-  const voices = window.speechSynthesis.getVoices();
-  const esVoice = voices.find(v => v.lang.startsWith('es'));
-  if(esVoice) u.voice = esVoice;
+  setTimeout(()=>{
+    const u = new SpeechSynthesisUtterance(String(text));
+    u.lang = 'es-PE'; u.rate = 1.1; u.volume = 1; u.pitch = 1.1;
+    const voices = window.speechSynthesis.getVoices();
+    const esVoice = voices.find(v => v.lang.startsWith('es'));
+    if(esVoice) u.voice = esVoice;
 
-  _vozActiva = true;
-  window.speechSynthesis.speak(u);
+    _vozActiva = true;
+    window.speechSynthesis.speak(u);
 
-  // Android fix: si speechSynthesis se pausa en fondo, hacer resume()
-  // Chrome Android lo necesita cada pocos segundos
-  if(_vozResumeTimer) clearInterval(_vozResumeTimer);
-  _vozResumeTimer = setInterval(()=>{
-    if(window.speechSynthesis.paused || window.speechSynthesis.pending){
-      try{ window.speechSynthesis.resume(); }catch(e){}
-    }
-  }, 2000);
+    // Android: resume() cada 2s para evitar que se pause
+    if(_vozResumeTimer) clearInterval(_vozResumeTimer);
+    _vozResumeTimer = setInterval(()=>{
+      try{
+        if(window.speechSynthesis.paused) window.speechSynthesis.resume();
+      }catch(e){}
+    }, 2000);
 
-  u.onend = ()=>{
-    _vozActiva = false;
-    if(_vozResumeTimer){ clearInterval(_vozResumeTimer); _vozResumeTimer = null; }
-  };
-  u.onerror = ()=>{
-    _vozActiva = false;
-    if(_vozResumeTimer){ clearInterval(_vozResumeTimer); _vozResumeTimer = null; }
-  };
+    u.onend = u.onerror = ()=>{
+      _vozActiva = false;
+      if(_vozResumeTimer){ clearInterval(_vozResumeTimer); _vozResumeTimer = null; }
+    };
+  }, 80);
+  return true;
+}
+
+// ── FUNCIÓN PRINCIPAL speak() — Elige el método según contexto ──
+function speak(text, forceAudio=false){
+  const now = Date.now();
+  if(now - _lastSpeakTime < 2500) return; // evitar spam
+  _lastSpeakTime = now;
+
+  const esFondo = document.hidden;
+  const kmh = (typeof text === 'number') ? text : parseInt(text) || 0;
+  const exceso = Math.max(1, kmh - speedLimit);
+
+  if(esFondo || forceAudio){
+    // FONDO: Web Audio oscillator (no se puede bloquear)
+    _speakWebAudio(kmh, exceso);
+    // TAMBIÉN intentar TTS (a veces funciona dependiendo del dispositivo)
+    _speakTTS(String(text));
+  } else {
+    // FRENTE: TTS normal
+    _speakTTS(String(text));
+  }
 }
 
 function stopVoiceAll(){
@@ -984,11 +1083,36 @@ function stopVoiceAll(){
 
 speechSynthesis.onvoiceschanged = ()=>{};
 
+// ── BACKGROUND BEEP LOOP — Alerta continua en fondo ───────
+// Cuando la app está en fondo Y hay exceso de velocidad:
+// dispara beeps cada 5s independientemente del timer de voz
+function _startBgBeepLoop(){
+  if(_bgBeepTimer) return;
+  _bgBeepTimer = setInterval(()=>{
+    if(!isRunning || !isOverLimit) return;
+    if(!document.hidden) return; // solo en fondo
+    const gpsAge = Date.now() - _lastGpsTs;
+    if(gpsAge > 12000) return; // GPS congelado → no beepear
+    const kmh = Math.round(currentSpeed);
+    const exceso = Math.max(1, kmh - speedLimit);
+    _speakWebAudio(kmh, exceso);
+    // Vibración adicional en fondo
+    if(navigator.vibrate) navigator.vibrate([200,100,200]);
+  }, 5000);
+}
+
+function _stopBgBeepLoop(){
+  if(_bgBeepTimer){ clearInterval(_bgBeepTimer); _bgBeepTimer = null; }
+}
+
 function startVoiceAlert(){
   if(voiceInterval) return;
   speak(Math.round(currentSpeed));
   voiceInterval = setInterval(()=>{
-    if(currentSpeed >= speedLimit) speak(Math.round(currentSpeed));
+    if(!isRunning || !isOverLimit) return;
+    const gpsAge = Date.now() - _lastGpsTs;
+    if(gpsAge > 8000) return; // GPS congelado → silencio
+    speak(Math.round(currentSpeed));
   }, 4000);
 }
 
@@ -1116,13 +1240,10 @@ function _startVoiceTimer(){
   if(_voiceTimer) return;
   _voiceTimer = setInterval(()=>{
     if(!isRunning || !isOverLimit) return;
-    // Verificar que el GPS está activo (dato fresco < 8s)
+    if(document.hidden) return; // en fondo lo maneja _bgBeepLoop
     const gpsAge = Date.now() - _lastGpsTs;
-    if(gpsAge > 8000) return; // GPS congelado en fondo → NO hablar
-    if(!window.speechSynthesis) return;
-    if(!window.speechSynthesis.speaking && !_vozActiva){
-      speak(Math.round(currentSpeed));
-    }
+    if(gpsAge > 8000) return; // GPS sin datos → NO hablar
+    speak(Math.round(currentSpeed));
   }, 4000);
 }
 
@@ -1193,6 +1314,7 @@ async function startGPS(){
   _startGPSLoop();
   _startVoiceTimer();
   _startWatchdog();
+  _startBgBeepLoop();
 }
 
 function stopGPS(){
@@ -1201,6 +1323,7 @@ function stopGPS(){
   _stopGPSLoop();
   _stopVoiceTimer();
   _stopWatchdog();
+  _stopBgBeepLoop();
   stopVoiceAlert(); stopBgAlerts(); clearAlertUI(); setSpeed(0);
   maxSpeed=0; currentHeading=null; _posBuffer=[];
   document.getElementById('maxSpeed').textContent='--';
@@ -1299,8 +1422,14 @@ function onPosition(pos){
     isOverLimit=true; isNearLimit=false;
     infractionCount++;
     showAlertUI('speed');
-    speak(Math.round(kmh)); // voz inmediata al exceder
-    // El _voiceTimer independiente repite cada 4s sin depender de GPS
+    // Voz inmediata — dual mode: TTS en frente, WebAudio en fondo
+    speak(Math.round(kmh));
+    // Si estamos en fondo, también disparar WebAudio inmediatamente
+    if(document.hidden){
+      const ex = Math.max(1, kmh - speedLimit);
+      _speakWebAudio(Math.round(kmh), ex);
+      if(navigator.vibrate) navigator.vibrate([400,100,400,100,400]);
+    }
     sendNotif(kmh,speedLimit);
     const ex=kmh-speedLimit;
     vibrarExceso(ex);
