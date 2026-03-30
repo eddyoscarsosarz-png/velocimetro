@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIARIO PREDICTOR — Bombo 1-35</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#08090f;color:#dde4f0;min-height:100vh}
+.header{background:linear-gradient(135deg,#0d1b3e,#1a3a6e,#0d3b2e);padding:18px 28px;display:flex;align-items:center;gap:14px;box-shadow:0 4px 24px rgba(0,0,0,0.5)}
+.logo{width:52px;height:52px;background:radial-gradient(circle,#00e5ff,#0057b8);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 0 20px rgba(0,229,255,0.4);flex-shrink:0}
+.header h1{font-size:22px;font-weight:800;letter-spacing:2px;color:#fff}
+.header .sub{font-size:11px;color:#80cbc4;margin-top:3px}
+.badge{display:inline-block;background:#00695c;color:#80cbc4;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-left:8px}
+.container{max-width:1100px;margin:0 auto;padding:18px 12px}
+.tabs{display:flex;gap:3px;background:#0d1525;border-radius:10px;padding:4px;margin-bottom:18px;flex-wrap:wrap}
+.tab{flex:1;min-width:90px;padding:8px 6px;text-align:center;border-radius:7px;cursor:pointer;font-size:11px;font-weight:700;color:#455a64;transition:all .2s}
+.tab.active{background:#00695c;color:#fff}
+.tab:hover:not(.active){background:#1a3a5f;color:#80cbc4}
+.card{background:#0f1d2e;border:1px solid #1e3a5f;border-radius:12px;padding:16px;margin-bottom:14px}
+.card-t{font-size:12px;font-weight:700;color:#4dd0e1;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:660px){.grid2{grid-template-columns:1fr}}
+/* Balls */
+.ball{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:50%;font-weight:800;font-size:13px;margin:3px;box-shadow:inset 0 -3px 6px rgba(0,0,0,0.4),0 2px 8px rgba(0,0,0,0.4);cursor:default;transition:transform .1s}
+.ball:hover{transform:scale(1.1)}
+.ball-sm{width:30px;height:30px;font-size:11px}
+.b1{background:radial-gradient(circle at 35% 35%,#80deea,#006064);color:#fff}
+.b2{background:radial-gradient(circle at 35% 35%,#a5d6a7,#1b5e20);color:#fff}
+.b3{background:radial-gradient(circle at 35% 35%,#fff59d,#f9a825);color:#1a1a1a}
+.b4{background:radial-gradient(circle at 35% 35%,#ef9a9a,#b71c1c);color:#fff}
+.b5{background:radial-gradient(circle at 35% 35%,#ce93d8,#4a148c);color:#fff}
+.b6{background:radial-gradient(circle at 35% 35%,#ffcc80,#e65100);color:#1a1a1a}
+.b7{background:radial-gradient(circle at 35% 35%,#b0bec5,#37474f);color:#fff}
+.ball-glow{box-shadow:0 0 14px 4px #00e5ff,inset 0 -3px 6px rgba(0,0,0,0.4)!important}
+.ball-hot{box-shadow:0 0 12px 3px #ff6f00,inset 0 -3px 6px rgba(0,0,0,0.4)!important}
+.ball-cold{box-shadow:0 0 10px 3px #0057b8,inset 0 -3px 6px rgba(0,0,0,0.4)!important}
+.ball-dim{opacity:.3}
+/* UI */
+.btn{padding:7px 14px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:700;transition:all .2s}
+.btn-primary{background:#00695c;color:#fff}.btn-primary:hover{background:#00897b}
+.btn-danger{background:#b71c1c;color:#fff}.btn-danger:hover{background:#c62828}
+.btn-sec{background:#1e3a5f;color:#80cbc4;border:1px solid #2d5a8e}.btn-sec:hover{background:#244878}
+.btn-gold{background:linear-gradient(135deg,#e65100,#ff8f00);color:#fff}
+.ifield{background:#060e1a;border:1px solid #2d5a8e;border-radius:7px;padding:7px 10px;color:#dde4f0;font-size:13px;width:60px;text-align:center}
+.ifield:focus{outline:none;border-color:#00e5ff}
+.ifield-wide{width:100%;max-width:220px}
+.alert{padding:11px 14px;border-radius:8px;margin-bottom:12px;font-size:12px;line-height:1.7}
+.alert-info{background:#002137;border:1px solid #006064;color:#80deea}
+.alert-warn{background:#1a0f00;border:1px solid #e65100;color:#ffb74d}
+.alert-ok{background:#00150a;border:1px solid #2e7d32;color:#81c784}
+/* Prediction panel */
+.pred-box{background:linear-gradient(135deg,#021428,#001a12);border:1px solid #00695c;border-radius:14px;padding:20px;margin-bottom:16px}
+.pred-title{font-size:15px;font-weight:800;color:#00e5ff;margin-bottom:8px}
+.method-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.method-chip{padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;cursor:pointer;transition:all .2s}
+.mc-active{background:#00695c;color:#fff}
+.mc-off{background:#1e3a5f;color:#546e7a}
+/* Score bars */
+.score-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.score-bar{flex:1;height:8px;background:#1e3a5f;border-radius:4px;overflow:hidden}
+.score-fill{height:100%;border-radius:4px;transition:width .6s}
+.pct{font-size:10px;color:#546e7a;width:40px;text-align:right}
+/* History table */
+.hrow{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #1a2a3a;font-size:11px}
+.hrow:last-child{border-bottom:none}
+.hn{width:50px;text-align:right;color:#455a64;font-weight:700;flex-shrink:0}
+.scroll{max-height:360px;overflow-y:auto}
+.scroll::-webkit-scrollbar{width:5px}
+.scroll::-webkit-scrollbar-track{background:#060e1a}
+.scroll::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:3px}
+/* Stats */
+.stat-box{background:#060e1a;border-radius:8px;padding:12px;text-align:center}
+.stat-v{font-size:20px;font-weight:800;color:#00e5ff}
+.stat-l{font-size:10px;color:#455a64;margin-top:3px}
+.hm-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:10px}
+/* Add sorteo form */
+.add-form{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+/* Tooltip */
+.tip{position:relative;display:inline-block}
+.tip:hover .tiptext{visibility:visible;opacity:1}
+.tiptext{visibility:hidden;opacity:0;background:#1e3a5f;color:#dde4f0;padding:6px 10px;border-radius:6px;font-size:11px;position:absolute;bottom:130%;left:50%;transform:translateX(-50%);white-space:nowrap;transition:opacity .2s;z-index:10;pointer-events:none}
+/* Filter toggles */
+.filter-panel{background:#060e1a;border:1px solid #1e3a5f;border-radius:8px;padding:12px;margin-bottom:12px}
+.filter-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:12px;margin-bottom:8px}
+.filter-row:last-child{margin-bottom:0}
+.fchk{accent-color:#00e5ff;width:14px;height:14px;cursor:pointer}
+.slider{accent-color:#00e5ff;width:120px}
+/* New level indicator */
+.new-badge{background:#4a148c;color:#ce93d8;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">🎰</div>
+  <div>
+    <h1>DIARIO PREDICTOR <span class="badge">v1.0 · 8079 sorteos</span></h1>
+    <div class="sub">Bombo 1–35 · 5 bolillas · Sorteo diario · Cadenas de Markov + Recencia + Frecuencia + Filtros</div>
+  </div>
+</div>
+
+<div class="container">
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('pred',this)">🎯 Predicción</div>
+  <div class="tab" onclick="showTab('add',this)">➕ Agregar Sorteo</div>
+  <div class="tab" onclick="showTab('hist',this)">📋 Historial</div>
+  <div class="tab" onclick="showTab('stats',this)">📊 Estadísticas</div>
+  <div class="tab" onclick="showTab('matrix',this)">🔗 Matriz</div>
+  <div class="tab" onclick="showTab('custom',this)">🔍 Verificar</div>
+</div>
+
+<!-- ═══════════════ PREDICCIÓN ═══════════════ -->
+<div id="tab-pred">
+
+  <div class="pred-box">
+    <div class="pred-title">🎯 Predicción para el Nivel <span id="nextNivel">4536</span></div>
+    <div style="font-size:11px;color:#80cbc4;margin-bottom:10px;">
+      Basado en el Nivel <span id="baseNivel">4535</span>: <span id="baseBalls"></span>
+    </div>
+
+    <div class="method-bar">
+      <div class="method-chip mc-active" onclick="toggleMethod('markov',this)" id="chip-markov">🔗 Markov</div>
+      <div class="method-chip mc-active" onclick="toggleMethod('freq',this)" id="chip-freq">📊 Frecuencia</div>
+      <div class="method-chip mc-active" onclick="toggleMethod('recency',this)" id="chip-recency">⏱️ Recencia</div>
+      <div class="method-chip mc-active" onclick="toggleMethod('pairs',this)" id="chip-pairs">🤝 Pares</div>
+      <div class="method-chip mc-active" onclick="toggleMethod('sum',this)" id="chip-sum">Σ Suma</div>
+    </div>
+
+    <div class="filter-panel">
+      <div class="filter-row">
+        <label>Pares (mín): <input type="range" class="slider" id="f-even-min" min="0" max="5" value="1" oninput="document.getElementById('f-even-val').textContent=this.value;runPrediction()"> <span id="f-even-val">1</span></label>
+        <label>Pares (máx): <input type="range" class="slider" id="f-even-max" min="0" max="5" value="4" oninput="document.getElementById('f-even-vax').textContent=this.value;runPrediction()"> <span id="f-even-vax">4</span></label>
+      </div>
+      <div class="filter-row">
+        <label>Suma objetivo: <input type="range" class="slider" id="f-sum" min="20" max="157" value="90" oninput="document.getElementById('f-sum-v').textContent=this.value;runPrediction()"> <b id="f-sum-v" style="color:#00e5ff">90</b></label>
+        <label style="margin-left:14px">Tolerancia ±<input type="range" class="slider" id="f-tol" min="5" max="40" value="20" oninput="document.getElementById('f-tol-v').textContent=this.value;runPrediction()"> <span id="f-tol-v">20</span></label>
+      </div>
+      <div class="filter-row">
+        <label><input type="checkbox" class="fchk" id="f-norepeat" checked onchange="runPrediction()"> Excluir bolillas del sorteo anterior</label>
+        <label style="margin-left:14px"><input type="checkbox" class="fchk" id="f-spread" checked onchange="runPrediction()"> Favorecer distribución amplia (sin agrupaciones)</label>
+      </div>
+    </div>
+
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;color:#455a64;margin-bottom:6px;">🏆 PREDICCIÓN PRINCIPAL (top combinación)</div>
+      <div id="mainPred"></div>
+      <div style="font-size:11px;color:#455a64;margin-top:6px;">Suma estimada: <b id="predSum" style="color:#00e5ff"></b> &nbsp;|&nbsp; Pares: <b id="predEven" style="color:#00e5ff"></b></div>
+    </div>
+
+    <div style="margin-bottom:6px;font-size:11px;color:#455a64;">🎲 COMBINACIONES ALTERNATIVAS (A / B / C)</div>
+    <div id="altPreds"></div>
+
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-gold" onclick="runPrediction()">🔄 Recalcular</button>
+      <button class="btn btn-sec" onclick="showTab('add',document.querySelectorAll('.tab')[1])">➕ Ingresar resultado real</button>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-t">📈 Score por bolilla (para próximo sorteo)</div>
+      <div id="scoreBars"></div>
+    </div>
+    <div class="card">
+      <div class="card-t">🔥 Calor reciente (últimos 30 sorteos)</div>
+      <div class="hm-grid" id="heatmap"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-t">🧠 Análisis de transición desde nivel actual</div>
+    <div id="transAnalysis"></div>
+  </div>
+
+</div>
+
+<!-- ═══════════════ AGREGAR SORTEO ═══════════════ -->
+<div id="tab-add" style="display:none">
+  <div class="card">
+    <div class="card-t">➕ Registrar nuevo sorteo</div>
+    <div class="alert alert-info">
+      Ingresa el resultado real del sorteo. El sistema lo aprenderá y actualizará las predicciones automáticamente.
+    </div>
+    <div style="font-size:12px;color:#80cbc4;margin-bottom:10px;">
+      Próximo nivel a ingresar: <b id="nextNivelAdd" style="color:#00e5ff;font-size:15px;"></b>
+    </div>
+    <div class="add-form" style="margin-bottom:14px">
+      <span style="font-size:12px;color:#455a64;">Nivel:</span>
+      <input type="number" class="ifield" id="addNivel" min="1" max="99999" style="width:80px">
+      <span style="font-size:12px;color:#455a64;">Bolillas (5 números del 1 al 35):</span>
+      <input type="number" class="ifield" id="a1" min="1" max="35" placeholder="B1">
+      <input type="number" class="ifield" id="a2" min="1" max="35" placeholder="B2">
+      <input type="number" class="ifield" id="a3" min="1" max="35" placeholder="B3">
+      <input type="number" class="ifield" id="a4" min="1" max="35" placeholder="B4">
+      <input type="number" class="ifield" id="a5" min="1" max="35" placeholder="B5">
+      <button class="btn btn-primary" onclick="addSorteo()">💾 Guardar</button>
+    </div>
+    <div id="addResult"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-t">📋 Últimos sorteos agregados manualmente <span id="manualCount" class="new-badge">0 nuevos</span></div>
+    <div class="scroll" id="manualList"><div style="color:#455a64;font-size:12px;">Aún no has agregado sorteos manualmente.</div></div>
+  </div>
+</div>
+
+<!-- ═══════════════ HISTORIAL ═══════════════ -->
+<div id="tab-hist" style="display:none">
+  <div class="card">
+    <div class="card-t">🔎 Buscar nivel</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <input type="number" class="ifield" id="histSearch" placeholder="Nro" style="width:90px" onkeyup="if(event.key==='Enter')searchLevel()">
+      <button class="btn btn-primary" onclick="searchLevel()">Buscar</button>
+      <button class="btn btn-sec" onclick="goToLatest()">Ir al último</button>
+    </div>
+    <div id="histDetail"></div>
+  </div>
+  <div class="card">
+    <div class="card-t">📋 Últimos 200 sorteos</div>
+    <div class="scroll" id="histList"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ ESTADÍSTICAS ═══════════════ -->
+<div id="tab-stats" style="display:none">
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px" id="statsGrid"></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-t">🔥 Bolillas más frecuentes (total histórico)</div>
+      <div id="statHot"></div>
+    </div>
+    <div class="card">
+      <div class="card-t">❄️ Bolillas menos frecuentes</div>
+      <div id="statCold"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-t">🎯 Pares que más salen juntos (Top 20)</div>
+    <div id="statPairs" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ MATRIZ ═══════════════ -->
+<div id="tab-matrix" style="display:none">
+  <div class="card">
+    <div class="card-t">🔗 Matriz de transición — Si salió X ¿cuál sigue?</div>
+    <div style="font-size:11px;color:#455a64;margin-bottom:10px">Selecciona una bolilla para ver sus sucesores más frecuentes</div>
+    <div id="matrixBalls" style="margin-bottom:14px"></div>
+    <div id="matrixResult"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ VERIFICAR ═══════════════ -->
+<div id="tab-custom" style="display:none">
+  <div class="card">
+    <div class="card-t">🔍 Analizar tu combinación propia</div>
+    <div style="font-size:12px;color:#80cbc4;margin-bottom:10px">Ingresa 5 números del 1 al 35 para evaluar su probabilidad</div>
+    <div class="add-form" style="margin-bottom:14px">
+      <input type="number" class="ifield" id="c1" min="1" max="35" placeholder="N1">
+      <input type="number" class="ifield" id="c2" min="1" max="35" placeholder="N2">
+      <input type="number" class="ifield" id="c3" min="1" max="35" placeholder="N3">
+      <input type="number" class="ifield" id="c4" min="1" max="35" placeholder="N4">
+      <input type="number" class="ifield" id="c5" min="1" max="35" placeholder="N5">
+      <button class="btn btn-primary" onclick="analyzeCustom()">Analizar</button>
+    </div>
+    <div id="customResult"></div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// DATA — 8079 sorteos históricos comprimidos en matriz de transición
+// ═══════════════════════════════════════════════════════════════
+const TRANS={"1":{"7":166,"14":185,"25":153,"26":166,"33":153,"2":152,"8":142,"19":165,"20":152,"3":160,"10":161,"11":165,"15":155,"17":173,"32":165,"9":143,"23":172,"30":150,"1":183,"6":177,"21":179,"4":157,"27":163,"22":160,"12":178,"24":169,"31":176,"29":178,"5":142,"16":165,"18":153,"28":163,"35":170,"34":169,"13":170},"2":{"8":148,"10":150,"12":167,"16":147,"23":168,"20":173,"24":161,"31":164,"4":176,"6":173,"29":158,"14":152,"15":167,"34":137,"1":173,"28":170,"35":168,"3":157,"27":179,"13":180,"25":148,"2":163,"30":171,"32":188,"7":173,"22":163,"5":173,"9":146,"26":175,"19":162,"18":178,"17":163,"33":144,"11":169,"21":176},"3":{"5":165,"10":148,"12":182,"22":156,"30":166,"3":157,"11":163,"20":169,"25":171,"4":172,"13":197,"28":144,"34":143,"18":157,"23":150,"27":151,"7":189,"17":151,"32":171,"6":168,"14":157,"15":187,"2":162,"24":176,"26":157,"19":175,"1":156,"31":177,"33":154,"21":159,"16":157,"29":184,"9":153,"8":150,"35":156},"4":{"15":155,"19":165,"25":175,"33":178,"34":152,"2":161,"7":175,"8":150,"20":147,"12":167,"18":170,"23":166,"27":168,"28":161,"14":165,"16":164,"22":181,"10":179,"17":162,"3":166,"24":175,"30":185,"1":162,"6":167,"5":167,"21":151,"13":161,"11":172,"9":167,"32":167,"4":161,"35":144,"29":158,"31":187,"26":164},"5":{"14":163,"26":192,"27":153,"29":163,"31":173,"1":167,"3":155,"18":159,"22":160,"24":188,"4":176,"8":143,"15":164,"10":165,"21":150,"28":175,"30":171,"33":148,"7":168,"5":175,"19":175,"35":176,"2":181,"25":172,"6":169,"23":158,"13":203,"9":155,"11":182,"16":164,"32":173,"12":169,"34":171,"20":149,"17":145},"6":{"1":145,"3":161,"18":170,"22":159,"24":173,"19":178,"27":178,"28":178,"35":167,"6":193,"8":144,"12":192,"21":160,"33":159,"15":173,"17":148,"9":159,"11":170,"23":150,"25":179,"30":170,"4":165,"29":175,"10":152,"2":159,"14":159,"31":183,"20":146,"26":162,"16":161,"7":154,"32":197,"5":174,"34":166,"13":196},"7":{"15":171,"19":174,"25":160,"33":136,"34":158,"5":199,"10":129,"12":184,"22":185,"30":165,"13":175,"27":160,"32":174,"35":194,"8":159,"16":160,"23":176,"1":167,"3":187,"18":169,"24":179,"26":189,"31":169,"20":178,"6":173,"11":198,"17":170,"28":175,"9":157,"29":184,"4":179,"2":159,"14":157,"7":169,"21":157},"8":{"1":162,"9":152,"21":159,"25":144,"34":138,"8":142,"10":160,"12":174,"16":134,"23":136,"5":147,"6":151,"7":169,"14":159,"4":142,"17":150,"24":160,"30":143,"27":167,"15":144,"29":148,"28":151,"19":147,"32":164,"13":160,"20":144,"35":144,"2":140,"18":154,"11":154,"26":143,"22":167,"33":171,"3":155,"31":155},"9":{"7":159,"14":148,"25":150,"26":179,"33":144,"3":171,"19":139,"27":154,"28":162,"35":157,"8":144,"20":179,"23":156,"24":154,"31":164,"6":157,"12":182,"21":152,"2":154,"10":159,"4":176,"18":175,"5":177,"22":153,"15":149,"30":144,"29":155,"11":172,"16":174,"32":158,"9":165,"34":143,"13":170,"17":142,"1":148},"10":{"14":147,"26":144,"27":155,"29":160,"31":162,"5":177,"6":166,"7":161,"21":168,"3":173,"4":185,"13":163,"28":184,"34":145,"8":129,"24":166,"9":150,"12":163,"19":168,"32":154,"2":165,"30":140,"10":164,"22":163,"25":185,"15":162,"33":162,"23":183,"16":149,"35":157,"1":165,"11":161,"18":145,"17":145,"20":149},"11":{"1":188,"9":205,"21":169,"25":174,"34":156,"3":184,"4":166,"13":159,"28":166,"17":173,"24":186,"30":158,"2":185,"6":192,"8":179,"10":163,"26":165,"11":190,"18":171,"33":158,"23":156,"16":168,"35":174,"5":167,"15":177,"7":186,"31":147,"12":190,"32":179,"19":166,"27":170,"20":171,"22":187,"14":164,"29":161},"12":{"14":191,"26":184,"27":194,"29":166,"31":182,"5":172,"6":178,"7":181,"21":167,"9":170,"17":174,"1":196,"12":183,"15":183,"11":161,"23":183,"25":181,"30":187,"4":196,"10":167,"18":184,"19":174,"35":177,"2":181,"22":196,"16":160,"8":181,"28":180,"20":181,"32":191,"3":159,"24":173,"33":194,"13":196,"34":142},"13":{"14":174,"17":156,"20":162,"23":168,"34":157,"12":178,"18":184,"27":181,"28":178,"2":173,"8":163,"31":178,"32":174,"5":182,"6":152,"26":184,"29":182,"7":158,"16":144,"11":169,"19":185,"15":173,"21":170,"25":168,"30":169,"3":157,"9":165,"1":170,"33":176,"22":173,"35":177,"13":158,"24":187,"10":172,"4":168},"14":{"8":149,"11":159,"14":168,"17":166,"24":152,"1":168,"9":151,"21":159,"25":161,"34":152,"13":152,"15":150,"27":154,"32":170,"35":162,"4":143,"26":171,"2":165,"7":155,"19":168,"20":188,"3":171,"18":176,"22":158,"6":187,"30":156,"12":193,"31":163,"5":185,"10":167,"23":174,"28":151,"29":143,"33":178,"16":145},"15":{"15":162,"19":150,"25":172,"33":168,"34":160,"3":164,"7":169,"20":180,"14":166,"17":165,"23":168,"4":173,"24":161,"30":184,"9":169,"11":171,"6":184,"31":188,"35":151,"5":168,"10":143,"21":167,"8":160,"13":161,"27":168,"1":172,"18":169,"28":161,"2":162,"32":144,"26":172,"12":181,"22":161,"16":155,"29":176},"16":{"15":176,"19":148,"25":156,"33":175,"34":129,"5":146,"6":168,"7":169,"14":155,"21":137,"2":151,"9":167,"22":184,"12":143,"20":161,"24":195,"3":147,"10":146,"16":156,"8":136,"23":166,"31":165,"32":163,"4":159,"30":145,"26":138,"28":158,"1":144,"29":157,"11":174,"13":170,"35":158,"27":171,"18":169,"17":153},"17":{"1":174,"9":158,"21":152,"25":173,"34":145,"4":158,"14":163,"26":160,"32":165,"3":148,"19":156,"27":166,"28":132,"35":152,"31":172,"17":167,"24":156,"30":150,"16":161,"22":178,"23":157,"6":171,"11":147,"12":151,"5":145,"2":180,"10":141,"15":177,"8":141,"18":147,"20":147,"13":165,"7":159,"33":158,"29":148},"18":{"3":181,"10":162,"11":171,"20":157,"25":163,"6":166,"9":152,"17":155,"27":161,"29":166,"1":163,"26":176,"31":165,"34":126,"35":163,"2":166,"14":169,"24":162,"30":158,"21":165,"23":154,"8":170,"28":179,"4":180,"19":156,"7":189,"15":163,"33":154,"32":170,"13":178,"12":195,"22":173,"16":160,"18":174,"5":158},"19":{"3":157,"7":165,"20":168,"25":178,"34":149,"8":157,"10":174,"12":171,"16":154,"23":175,"17":141,"18":163,"32":159,"2":140,"9":170,"21":186,"22":157,"4":170,"6":165,"11":187,"24":168,"26":154,"27":159,"5":171,"1":156,"28":155,"13":160,"19":147,"33":139,"14":165,"15":170,"35":147,"29":146,"30":147,"31":170},"20":{"5":181,"10":159,"12":182,"22":178,"30":150,"1":154,"4":158,"14":166,"26":165,"32":159,"8":134,"16":144,"23":166,"3":181,"13":157,"28":180,"34":167,"17":153,"21":167,"27":169,"11":184,"18":148,"25":164,"33":177,"2":160,"6":147,"29":158,"7":176,"31":165,"20":170,"24":162,"15":188,"19":147,"9":164,"35":170},"21":{"7":170,"14":162,"25":157,"26":182,"33":162,"1":156,"3":159,"18":151,"22":187,"24":157,"8":128,"20":187,"23":164,"31":164,"6":163,"9":153,"30":164,"32":152,"12":194,"15":181,"17":153,"4":155,"10":166,"27":155,"21":165,"28":157,"2":141,"29":144,"13":176,"16":163,"35":178,"5":162,"34":132,"11":177,"19":143},"22":{"14":168,"26":186,"27":160,"29":161,"31":173,"3":187,"10":135,"11":164,"20":162,"25":169,"2":175,"7":163,"9":140,"21":173,"22":187,"8":172,"23":176,"24":147,"1":169,"6":169,"16":156,"28":170,"35":191,"4":172,"15":183,"32":179,"19":161,"5":178,"33":168,"12":200,"17":153,"30":168,"13":184,"18":174,"34":162},"23":{"1":150,"4":162,"14":166,"26":177,"32":166,"5":165,"6":182,"7":174,"21":174,"9":158,"17":153,"27":174,"29":172,"2":151,"22":161,"23":159,"24":172,"30":166,"8":152,"10":174,"3":176,"25":157,"12":155,"20":160,"33":173,"13":189,"16":162,"28":182,"15":149,"35":159,"31":153,"11":166,"19":150,"34":156,"18":160},"24":{"1":171,"9":152,"21":177,"25":174,"34":147,"3":176,"10":172,"11":180,"20":141,"14":186,"16":163,"19":166,"22":179,"23":159,"17":158,"27":200,"6":166,"8":167,"12":199,"33":188,"28":155,"15":166,"18":168,"2":155,"26":158,"5":170,"30":162,"31":157,"32":199,"29":168,"24":185,"7":177,"13":167,"35":177,"4":165},"25":{"3":155,"7":176,"20":178,"25":161,"34":173,"5":171,"10":163,"12":187,"22":171,"30":166,"14":176,"26":177,"33":149,"13":181,"15":164,"27":162,"32":169,"35":190,"4":138,"28":172,"1":157,"31":141,"2":175,"6":162,"8":147,"11":187,"24":193,"21":166,"23":172,"16":163,"29":151,"9":166,"18":146,"17":148,"19":167},"26":{"8":154,"11":168,"14":158,"17":174,"24":184,"13":167,"15":178,"27":172,"32":176,"35":160,"2":178,"7":178,"19":171,"20":163,"4":162,"6":159,"29":169,"1":157,"18":178,"25":157,"33":159,"3":146,"10":171,"12":199,"16":177,"28":178,"5":163,"22":169,"23":182,"21":160,"30":160,"26":178,"34":152,"9":136,"31":192},"27":{"8":178,"11":187,"14":172,"17":175,"24":163,"20":152,"23":167,"34":175,"6":159,"9":145,"27":183,"29":164,"3":165,"19":149,"28":148,"35":172,"7":185,"18":162,"25":169,"32":168,"30":176,"12":177,"21":159,"1":166,"33":165,"5":172,"10":160,"2":178,"31":160,"22":163,"15":153,"13":153,"26":164,"16":164,"4":167},"28":{"12":198,"18":160,"23":184,"27":151,"28":161,"6":171,"9":174,"17":172,"29":165,"7":147,"25":171,"32":168,"19":155,"21":153,"20":165,"24":177,"33":172,"2":167,"4":174,"10":166,"8":165,"31":169,"30":164,"35":168,"15":172,"26":166,"11":185,"14":149,"22":149,"3":142,"16":164,"34":169,"5":165,"13":166,"1":151},"29":{"8":143,"11":184,"14":147,"17":148,"24":172,"3":163,"19":173,"27":170,"28":166,"35":163,"10":162,"13":149,"16":170,"7":165,"15":164,"29":151,"6":159,"12":178,"20":166,"5":151,"21":141,"32":175,"2":157,"9":160,"26":165,"23":158,"30":154,"31":170,"33":158,"34":172,"4":155,"22":165,"25":171,"18":163,"1":162},"30":{"14":137,"26":170,"27":158,"29":143,"31":173,"16":153,"19":164,"22":170,"23":155,"6":168,"8":137,"12":181,"21":151,"33":161,"2":163,"10":156,"15":166,"34":139,"4":169,"25":152,"20":135,"35":171,"18":169,"28":170,"32":188,"7":172,"9":162,"11":160,"30":144,"3":148,"17":132,"24":162,"13":166,"5":176,"1":164},"31":{"8":151,"11":177,"14":162,"17":178,"24":174,"15":170,"32":159,"21":144,"23":168,"27":176,"20":194,"26":162,"13":191,"25":182,"7":160,"12":186,"22":164,"28":177,"31":178,"6":176,"3":168,"9":181,"16":176,"10":164,"19":158,"33":169,"29":172,"35":170,"5":159,"1":179,"4":157,"34":152,"30":148,"18":156,"2":167},"32":{"15":161,"19":162,"25":176,"33":185,"34":168,"14":183,"17":172,"20":186,"23":161,"2":194,"7":179,"8":166,"1":158,"26":176,"31":158,"35":193,"4":169,"24":168,"30":170,"6":165,"12":184,"21":164,"10":188,"18":174,"13":162,"27":156,"28":162,"22":152,"9":164,"29":171,"11":162,"16":158,"5":176,"32":183,"3":174},"33":{"3":147,"7":182,"20":165,"25":153,"34":149,"13":168,"15":157,"27":165,"32":179,"35":161,"1":182,"6":161,"12":169,"17":163,"21":173,"23":155,"30":157,"2":163,"11":200,"22":175,"16":145,"26":171,"4":156,"10":147,"29":165,"24":157,"31":162,"9":152,"33":169,"5":184,"28":154,"8":172,"18":168,"14":162,"19":157},"34":{"3":169,"7":168,"20":152,"25":159,"34":136,"5":135,"10":152,"12":147,"22":174,"30":138,"14":148,"26":165,"33":168,"1":148,"4":159,"32":163,"18":171,"23":156,"27":149,"28":166,"8":133,"11":166,"15":149,"17":150,"16":129,"19":158,"6":126,"31":175,"35":148,"24":155,"2":149,"9":144,"13":153,"29":134,"21":163},"35":{"14":161,"17":144,"20":173,"23":157,"34":173,"7":184,"18":185,"25":185,"32":166,"8":144,"11":168,"15":161,"24":181,"26":148,"27":163,"6":165,"12":186,"33":173,"2":188,"31":180,"35":165,"22":177,"28":174,"5":152,"3":164,"9":160,"29":174,"16":165,"19":161,"4":170,"30":144,"1":147,"10":178,"21":147,"13":167}};
+const FREQ={"4":1159,"7":1195,"15":1165,"16":1107,"32":1196,"19":1128,"25":1164,"33":1149,"34":1072,"3":1146,"20":1150,"5":1170,"10":1123,"12":1253,"22":1187,"30":1118,"14":1142,"26":1177,"27":1163,"29":1134,"31":1182,"8":1066,"11":1210,"17":1105,"24":1190,"1":1146,"9":1113,"21":1132,"13":1194,"35":1166,"23":1151,"2":1152,"6":1171,"18":1160,"28":1159};
+const RECENCY_BASE={"1":7,"2":7,"3":5,"4":7,"5":6,"6":29,"7":6,"8":10,"9":3,"10":11,"11":8,"12":4,"13":1,"14":2,"15":2,"16":3,"17":1,"18":18,"19":9,"20":4,"21":28,"22":2,"23":6,"24":2,"25":6,"26":18,"27":5,"28":3,"29":3,"30":1,"31":1,"32":2,"33":9,"34":1,"35":14};
+const PAIRS={"12-24":171,"11-24":169,"12-25":169,"25-32":168,"2-12":167,"14-26":165,"6-31":165,"11-12":165,"5-11":163,"6-13":161,"12-35":161,"12-32":160,"28-32":160,"7-26":159,"16-35":159,"20-29":159,"12-26":159,"3-4":158,"12-15":158,"11-21":158,"15-27":157,"17-31":157,"5-31":157,"5-20":156,"7-12":155,"11-19":155,"7-24":155,"1-13":155,"11-17":154,"7-14":154,"7-22":154,"12-33":154,"13-23":154,"2-17":154,"13-35":153,"18-28":153,"10-26":153,"9-13":153,"11-28":153,"18-31":153,"11-29":153,"7-32":152,"16-32":152,"5-7":152,"11-20":152,"2-32":152,"31-32":152,"23-26":152,"15-29":152,"28-31":152};
+const HOT30={"10":3,"16":4,"18":4,"27":4,"28":5,"6":1,"9":7,"31":6,"33":3,"5":4,"8":6,"11":7,"14":9,"21":1,"1":4,"3":3,"24":6,"12":3,"17":7,"20":4,"23":5,"30":3,"7":4,"13":5,"26":4,"29":7,"32":6,"25":5,"35":2,"19":3,"2":4,"15":4,"34":4,"22":2,"4":1};
+const LAST_LEVELS=[[9,13,18,22,24],[1,4,6,14,28],[14,15,16,23,27],[16,17,22,28,32],[10,14,24,26,34],[7,14,16,23,34],[18,22,30,33,34],[6,19,28,29,32],[9,17,25,30,33],[3,10,16,18,25],[1,6,10,13,24],[4,8,16,21,23],[3,8,13,22,31],[7,13,23,26,27],[9,10,11,13,35],[15,18,22,24,30],[6,8,26,30,34],[13,16,18,22,26],[6,15,19,23,35],[7,23,25,28,34],[9,19,25,30,34],[4,11,12,17,31],[4,9,14,15,26],[2,6,7,28,29],[4,11,12,16,25],[2,13,26,27,29],[2,4,19,22,33],[8,21,31,33,35],[5,13,22,25,32],[4,9,19,20,26],[2,3,4,20,31],[6,7,11,20,22],[3,6,13,15,26],[16,18,29,32,35],[3,4,16,24,27],[9,17,19,23,32],[4,13,21,30,34],[3,4,5,23,24],[2,11,13,26,27],[1,18,26,30,31],[18,22,25,31,33],[5,15,16,21,30],[1,5,19,22,35],[6,9,12,18,19],[2,11,12,13,35],[1,16,27,32,35],[2,13,17,23,35],[1,7,25,27,31],[11,16,17,29,34],[1,2,7,28,31],[4,8,21,24,32],[4,7,11,25,28],[4,9,16,24,35],[8,12,14,15,29],[8,11,19,20,21],[3,7,12,25,35],[3,11,13,18,35],[3,12,13,33,35],[9,18,22,23,24],[10,16,21,30,33],[3,22,23,28,33],[6,7,16,20,29],[1,4,7,13,35],[4,12,19,21,24],[7,10,15,28,35],[16,21,28,29,33],[9,12,14,15,29],[19,25,27,28,34],[2,11,15,16,22],[4,8,9,31,32],[9,10,16,29,31],[1,3,5,12,29],[4,10,15,31,34],[7,10,29,33,35],[10,16,21,24,25],[9,10,12,13,19],[18,19,20,22,24],[1,20,22,23,28],[1,5,21,24,35],[4,6,13,16,27],[10,12,16,23,24],[2,4,6,21,28],[10,12,19,28,33],[4,12,16,21,27],[7,10,13,27,34],[2,5,13,15,33],[5,11,17,25,35],[7,10,12,19,33],[5,7,13,22,32],[7,15,17,22,31],[3,14,15,22,32],[16,20,22,23,34],[6,9,16,21,26],[6,11,15,23,28],[7,13,14,20,32],[4,5,23,25,32],[3,10,13,27,32],[4,6,7,8,24],[6,8,18,28,33],[5,19,26,28,30],[8,20,27,28,29],[2,8,11,18,19],[8,9,13,20,23],[11,16,21,23,35],[3,6,13,21,32],[9,10,22,26,31],[1,9,10,11,25],[1,6,7,16,17],[3,7,12,29,34],[6,19,20,22,30],[7,8,14,21,22],[9,17,29,31,33],[1,4,12,13,19],[7,12,24,28,34],[3,22,24,29,31],[11,13,15,21,26],[3,5,18,20,31],[7,16,28,30,35],[3,19,30,32,34],[2,4,6,20,27],[3,4,22,28,30],[4,7,15,19,32],[5,8,9,18,21],[10,15,16,26,28],[1,6,9,11,12],[9,12,30,33,35],[7,14,18,29,31],[5,12,23,26,34],[13,24,28,31,32],[9,11,13,32,33],[1,2,17,18,29],[7,13,18,19,27],[5,6,12,21,28],[16,25,30,32,35],[2,8,15,18,27],[4,16,28,30,35],[2,5,16,19,27],[2,12,13,29,35],[15,19,20,22,34],[5,12,17,29,33],[4,24,28,32,34],[8,11,27,30,33],[8,10,23,32,33],[3,15,20,32,34],[2,15,19,24,29],[5,9,12,24,32],[12,14,18,32,33],[19,20,26,27,28],[7,13,20,23,25],[1,2,16,29,34],[1,13,15,23,34],[3,5,16,27,33],[3,19,27,28,29],[6,9,17,19,24],[5,8,12,13,34],[10,18,21,28,29],[1,5,7,21,22],[2,6,21,25,34],[5,14,19,23,29],[6,18,23,27,31],[7,12,15,21,26],[11,13,16,26,35],[2,4,14,26,29],[3,16,17,32,33],[11,13,15,18,34],[4,10,18,22,25],[6,7,20,25,26],[1,12,27,29,31],[7,15,16,29,31],[5,6,27,28,31],[10,16,18,27,28],[6,9,18,31,33],[5,8,11,14,21],[1,3,14,24,31],[9,12,17,20,23],[9,11,17,18,24],[1,8,16,20,30],[7,11,13,26,29],[5,14,17,32,33],[8,23,25,26,35],[8,19,27,28,32],[2,15,19,26,30],[7,11,18,26,29],[2,10,15,17,34],[13,24,25,29,34],[9,12,14,31,34],[3,16,25,28,35],[1,2,8,13,22],[14,17,20,27,31],[5,10,11,15,24],[7,8,14,23,32],[11,13,19,28,33],[9,11,23,29,32],[1,2,4,25,29],[5,7,23,25,29],[3,9,24,27,32],[12,14,17,20,31],[9,14,16,28,29],[14,15,22,24,32],[13,17,30,31,34]];
+const META={sum_avg:89.95,sum_std:21.30,total_sorteos:8079,last_nivel:4535,nivel_offset:4036};
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let manualSorteos = JSON.parse(localStorage.getItem('diario_manual')||'[]');
+let activeMethods = {markov:true,freq:true,recency:true,pairs:true,sum:true};
+
+function getAllLevels(){
+  // merge embedded + manual
+  const base = LAST_LEVELS.map((l,i)=>({nivel: META.nivel_offset+i, balls:l}));
+  const manual = manualSorteos.map(s=>({nivel:s.nivel, balls:s.balls}));
+  const all = [...base,...manual].sort((a,b)=>a.nivel-b.nivel);
+  // deduplicate
+  const seen = new Set();
+  return all.filter(s=>{ if(seen.has(s.nivel)) return false; seen.add(s.nivel); return true; });
+}
+
+function getLastLevel(){
+  const all = getAllLevels();
+  return all[all.length-1];
+}
+
+function getLastNivel(){ return getLastLevel().nivel; }
+
+// ═══════════════════════════════════════════════════════════════
+// BALL HELPERS
+// ═══════════════════════════════════════════════════════════════
+function bClass(n){
+  if(n<=5)return 'b1';
+  if(n<=10)return 'b2';
+  if(n<=15)return 'b3';
+  if(n<=20)return 'b4';
+  if(n<=25)return 'b5';
+  if(n<=30)return 'b6';
+  return 'b7';
+}
+function ball(n,extra=''){return `<span class="ball ${bClass(n)} ${extra}" title="Bolilla ${n}">${n}</span>`}
+function ballSm(n,extra=''){return `<span class="ball ball-sm ${bClass(n)} ${extra}">${n}</span>`}
+
+// ═══════════════════════════════════════════════════════════════
+// PREDICTION ENGINE
+// ═══════════════════════════════════════════════════════════════
+function computeScores(baseLevel){
+  const maxF = Math.max(...Object.values(FREQ));
+  const maxRec = 200;
+
+  // Get current recency (adjust for manual sorteos)
+  const recency = {...RECENCY_BASE};
+  for(const ms of manualSorteos){
+    const ago = getLastNivel() - ms.nivel;
+    for(const b of ms.balls){
+      if(!recency[b] || recency[b] > ago) recency[b] = ago;
+    }
+  }
+
+  // 1. Markov
+  let mk = {};
+  for(const b of baseLevel){
+    const t = TRANS[String(b)]||{};
+    const total = Object.values(t).reduce((a,v)=>a+v,0)||1;
+    for(const [nb,cnt] of Object.entries(t)){
+      const n=parseInt(nb);
+      mk[n]=(mk[n]||0)+cnt/total;
+    }
+  }
+  const mkMax = Math.max(...Object.values(mk),1);
+
+  // 2. Pairs bonus: if 2+ balls from base are in a known hot pair
+  let pairBonus = {};
+  for(const [pair,cnt] of Object.entries(PAIRS)){
+    const [a,b]=pair.split('-').map(Number);
+    if(baseLevel.includes(a)||baseLevel.includes(b)){
+      const other=baseLevel.includes(a)?b:a;
+      pairBonus[other]=(pairBonus[other]||0)+cnt/171; // normalize by max pair
+    }
+  }
+  const pbMax=Math.max(...Object.values(pairBonus),1);
+
+  const scores={};
+  for(let b=1;b<=35;b++){
+    let s=0;
+    if(activeMethods.markov) s+=(mk[b]||0)/mkMax*0.40;
+    if(activeMethods.freq)   s+=(FREQ[String(b)]||0)/maxF*0.20;
+    if(activeMethods.recency){
+      const ago=recency[String(b)]||1;
+      s+=(Math.min(ago,maxRec)/maxRec)*0.20; // colder = higher
+    }
+    if(activeMethods.pairs) s+=(pairBonus[b]||0)/pbMax*0.20;
+    scores[b]=s;
+  }
+  return scores;
+}
+
+function pickCombination(scores, baseLevel, seed=0){
+  const eMin=parseInt(document.getElementById('f-even-min').value);
+  const eMax=parseInt(document.getElementById('f-even-max').value);
+  const sumTarget=parseInt(document.getElementById('f-sum').value);
+  const tol=parseInt(document.getElementById('f-tol').value);
+  const noRepeat=document.getElementById('f-norepeat').checked;
+  const spread=document.getElementById('f-spread').checked;
+
+  // Sort candidates
+  let pool = Object.entries(scores)
+    .filter(([b])=>!noRepeat||!baseLevel.includes(parseInt(b)))
+    .sort((a,b)=>b[1]-a[1]);
+
+  // Try to build valid combination
+  for(let attempt=0;attempt<500;attempt++){
+    // Shuffle top pool a bit based on seed+attempt
+    const jitter = attempt*0.003 + seed*0.05;
+    const jittered = pool.map(([b,s])=>[b,s+Math.sin(parseInt(b)*13.7+attempt*7.3+seed*31)*jitter]);
+    jittered.sort((a,b)=>b[1]-a[1]);
+
+    const pick5 = [];
+    const usedIdx = new Set();
+    for(let i=0;i<jittered.length&&pick5.length<5;i++){
+      const b=parseInt(jittered[i][0]);
+      if(usedIdx.has(i)) continue;
+      pick5.push(b);
+    }
+    if(pick5.length<5) continue;
+
+    const s=pick5.reduce((a,b)=>a+b,0);
+    const ev=pick5.filter(b=>b%2===0).length;
+    const sorted=pick5.sort((a,b)=>a-b);
+    const maxGap=Math.max(...sorted.slice(1).map((v,i)=>v-sorted[i]));
+
+    if(ev<eMin||ev>eMax) continue;
+    if(activeMethods.sum&&Math.abs(s-sumTarget)>tol) continue;
+    if(spread&&maxGap<4) continue;
+
+    return sorted;
+  }
+  // fallback: just top5
+  return pool.slice(seed*2, seed*2+5).map(([b])=>parseInt(b)).sort((a,b)=>a-b);
+}
+
+function runPrediction(){
+  const last = getLastLevel();
+  const baseLevel = last.balls;
+  const scores = computeScores(baseLevel);
+
+  document.getElementById('nextNivel').textContent = last.nivel+1;
+  document.getElementById('baseNivel').textContent = last.nivel;
+  document.getElementById('baseBalls').innerHTML = baseLevel.map(b=>ballSm(b)).join('');
+  document.getElementById('nextNivelAdd').textContent = last.nivel+1;
+  document.getElementById('addNivel').value = last.nivel+1;
+
+  const pred = pickCombination(scores, baseLevel, 0);
+  const predSum = pred.reduce((a,b)=>a+b,0);
+  const predEven = pred.filter(b=>b%2===0).length;
+
+  document.getElementById('mainPred').innerHTML = pred.map(b=>ball(b,'ball-glow')).join('');
+  document.getElementById('predSum').textContent = predSum;
+  document.getElementById('predEven').textContent = predEven;
+
+  // Alternatives
+  const alts = [1,2,3].map(s=>pickCombination(scores,baseLevel,s));
+  document.getElementById('altPreds').innerHTML = alts.map((a,i)=>`
+    <div style="margin-bottom:8px;padding:8px;background:#060e1a;border-radius:8px;">
+      <span style="font-size:10px;color:#455a64;margin-right:6px;">Combo ${String.fromCharCode(65+i)}:</span>
+      ${a.map(b=>ballSm(b)).join('')}
+      <span style="font-size:10px;color:#455a64;margin-left:8px;">Σ${a.reduce((x,y)=>x+y,0)}</span>
+    </div>`).join('');
+
+  // Score bars
+  const sortedScores = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
+  const maxS = sortedScores[0][1];
+  document.getElementById('scoreBars').innerHTML = sortedScores.map(([b,s])=>`
+    <div class="score-row">
+      ${ballSm(parseInt(b), pred.includes(parseInt(b))?'ball-glow':'')}
+      <div class="score-bar">
+        <div class="score-fill" style="width:${(s/maxS*100).toFixed(1)}%;background:${pred.includes(parseInt(b))?'linear-gradient(90deg,#00695c,#00e5ff)':'linear-gradient(90deg,#1e3a5f,#2d5a8e)'};"></div>
+      </div>
+      <span class="pct">${(s*100).toFixed(1)}%</span>
+    </div>`).join('');
+
+  // Heatmap
+  const maxH=Math.max(...Object.values(HOT30));
+  let hmHTML='';
+  for(let b=1;b<=35;b++){
+    const h=HOT30[String(b)]||0;
+    const intensity=h/maxH;
+    const bg=`rgba(${Math.round(255*intensity)},${Math.round(150*(1-intensity)+50)},0,${0.3+intensity*0.7})`;
+    hmHTML+=`<div class="tip"><div style="background:${bg};border-radius:6px;padding:5px 0;text-align:center;font-size:11px;font-weight:700;color:#fff;border:1px solid rgba(255,255,255,0.1);">${b}<div style="font-size:9px;opacity:.7">${h}x</div></div><span class="tiptext">Bolilla ${b}: ${h} veces en últimos 30</span></div>`;
+  }
+  document.getElementById('heatmap').innerHTML = hmHTML;
+
+  // Transition analysis
+  let taHTML='<div style="font-size:11px;color:#455a64;margin-bottom:8px;">Mejores sucesores históricos de cada bolilla del nivel base:</div>';
+  for(const b of baseLevel){
+    const t=TRANS[String(b)]||{};
+    const top5=Object.entries(t).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    taHTML+=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      ${ballSm(b)} <span style="color:#455a64;font-size:13px">→</span>
+      ${top5.map(([nb,cnt])=>`<div class="tip">${ballSm(parseInt(nb),pred.includes(parseInt(nb))?'ball-glow':'')}<span class="tiptext">${cnt}x</span></div>`).join('')}
+    </div>`;
+  }
+  document.getElementById('transAnalysis').innerHTML=taHTML;
+}
+
+function toggleMethod(m,el){
+  activeMethods[m]=!activeMethods[m];
+  el.className='method-chip '+(activeMethods[m]?'mc-active':'mc-off');
+  runPrediction();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ADD SORTEO
+// ═══════════════════════════════════════════════════════════════
+function addSorteo(){
+  const nivel=parseInt(document.getElementById('addNivel').value);
+  const balls=[];
+  for(let i=1;i<=5;i++){
+    const v=parseInt(document.getElementById('a'+i).value);
+    if(!v||v<1||v>35){
+      document.getElementById('addResult').innerHTML='<div class="alert alert-warn">⚠️ Ingresa 5 números válidos entre 1 y 35.</div>';
+      return;
+    }
+    balls.push(v);
+  }
+  if(new Set(balls).size!==5){
+    document.getElementById('addResult').innerHTML='<div class="alert alert-warn">⚠️ Los 5 números deben ser distintos.</div>';
+    return;
+  }
+  if(!nivel||nivel<1){
+    document.getElementById('addResult').innerHTML='<div class="alert alert-warn">⚠️ Ingresa un número de nivel válido.</div>';
+    return;
+  }
+
+  const sorted=balls.sort((a,b)=>a-b);
+  // Check duplicate
+  const existing=manualSorteos.find(s=>s.nivel===nivel);
+  if(existing){
+    document.getElementById('addResult').innerHTML='<div class="alert alert-warn">⚠️ El nivel '+nivel+' ya fue ingresado. Bórralo primero.</div>';
+    return;
+  }
+
+  manualSorteos.push({nivel,balls:sorted,ts:Date.now()});
+  manualSorteos.sort((a,b)=>a.nivel-b.nivel);
+  localStorage.setItem('diario_manual',JSON.stringify(manualSorteos));
+
+  document.getElementById('addResult').innerHTML=`<div class="alert alert-ok">✅ Nivel ${nivel} guardado: ${sorted.join(', ')} — El modelo ya lo incorporó.</div>`;
+  for(let i=1;i<=5;i++) document.getElementById('a'+i).value='';
+
+  renderManualList();
+  runPrediction();
+}
+
+function deleteManual(nivel){
+  manualSorteos=manualSorteos.filter(s=>s.nivel!==nivel);
+  localStorage.setItem('diario_manual',JSON.stringify(manualSorteos));
+  renderManualList();
+  runPrediction();
+}
+
+function renderManualList(){
+  document.getElementById('manualCount').textContent=manualSorteos.length+' nuevos';
+  if(!manualSorteos.length){
+    document.getElementById('manualList').innerHTML='<div style="color:#455a64;font-size:12px;">Aún no has agregado sorteos manualmente.</div>';
+    return;
+  }
+  document.getElementById('manualList').innerHTML=[...manualSorteos].reverse().map(s=>`
+    <div class="hrow">
+      <span class="hn new-badge">${s.nivel}</span>
+      ${s.balls.map(b=>ballSm(b)).join('')}
+      <span style="color:#455a64;font-size:10px;margin-left:4px;">Σ${s.balls.reduce((a,b)=>a+b,0)}</span>
+      <button class="btn btn-danger" style="padding:3px 8px;font-size:10px;margin-left:auto" onclick="deleteManual(${s.nivel})">✕</button>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HISTORIAL
+// ═══════════════════════════════════════════════════════════════
+function renderHistorial(){
+  const all=getAllLevels();
+  const last50=[...all].reverse().slice(0,200);
+  document.getElementById('histList').innerHTML=last50.map(s=>{
+    const isManual=manualSorteos.some(m=>m.nivel===s.nivel);
+    return `<div class="hrow">
+      <span class="hn" style="${isManual?'color:#ce93d8':''}">${s.nivel}${isManual?'*':''}</span>
+      ${s.balls.map(b=>ballSm(b)).join('')}
+      <span style="color:#455a64;font-size:10px;margin-left:6px;">Σ${s.balls.reduce((a,b)=>a+b,0)}</span>
+    </div>`;
+  }).join('');
+  goToLatest();
+}
+
+function goToLatest(){
+  const last=getLastLevel();
+  document.getElementById('histSearch').value=last.nivel;
+  searchLevel();
+}
+
+function searchLevel(){
+  const n=parseInt(document.getElementById('histSearch').value);
+  const all=getAllLevels();
+  const found=all.find(s=>s.nivel===n);
+  if(!found){
+    document.getElementById('histDetail').innerHTML=`<div class="alert alert-warn">Nivel ${n} no encontrado en el historial.</div>`;
+    return;
+  }
+  const idx=all.findIndex(s=>s.nivel===n);
+  const prev=idx>0?all[idx-1]:null;
+  const next=idx<all.length-1?all[idx+1]:null;
+  const sum=found.balls.reduce((a,b)=>a+b,0);
+  const evens=found.balls.filter(b=>b%2===0).length;
+  const isManual=manualSorteos.some(m=>m.nivel===n);
+
+  let html=`<div style="padding:12px;background:#060e1a;border-radius:8px;">
+    <div style="font-size:13px;font-weight:700;color:#00e5ff;margin-bottom:8px;">
+      Nivel ${n} ${isManual?'<span class="new-badge">Ingresado manualmente</span>':''}
+    </div>
+    <div style="margin-bottom:10px;">${found.balls.map(b=>ball(b)).join('')}</div>
+    <div style="font-size:11px;color:#455a64">Suma: <b style="color:#00e5ff">${sum}</b> &nbsp;|&nbsp; Pares: <b style="color:#00e5ff">${evens}</b> &nbsp;|&nbsp; Impares: <b style="color:#00e5ff">${5-evens}</b></div>`;
+
+  if(prev){
+    const common=found.balls.filter(b=>prev.balls.includes(b));
+    html+=`<div style="font-size:11px;color:#455a64;margin-top:8px;">← Niv.${prev.nivel}: ${prev.balls.map(b=>ballSm(b)).join('')} ${common.length?`<span style="background:#1b5e20;color:#81c784;padding:1px 6px;border-radius:6px;font-size:10px">${common.length} comunes: ${common.join(',')}</span>`:''}`;
+  }
+  if(next){
+    const common=found.balls.filter(b=>next.balls.includes(b));
+    html+=`<div style="font-size:11px;color:#455a64;margin-top:5px;">→ Niv.${next.nivel}: ${next.balls.map(b=>ballSm(b)).join('')} ${common.length?`<span style="background:#1b5e20;color:#81c784;padding:1px 6px;border-radius:6px;font-size:10px">${common.length} comunes: ${common.join(',')}</span>`:''}`;
+  }
+  html+='</div>';
+  document.getElementById('histDetail').innerHTML=html;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════════════════════════
+function renderStats(){
+  const all=getAllLevels();
+  const sums=all.map(s=>s.balls.reduce((a,b)=>a+b,0));
+  const avg=(sums.reduce((a,b)=>a+b,0)/sums.length).toFixed(1);
+
+  document.getElementById('statsGrid').innerHTML=`
+    <div class="stat-box"><div class="stat-v">${all.length}</div><div class="stat-l">Sorteos totales</div></div>
+    <div class="stat-box"><div class="stat-v">${avg}</div><div class="stat-l">Suma promedio</div></div>
+    <div class="stat-box"><div class="stat-v">${manualSorteos.length}</div><div class="stat-l">Ingresados manualmente</div></div>`;
+
+  // Build combined freq (base + manual)
+  const comboFreq={...FREQ};
+  for(const ms of manualSorteos){
+    for(const b of ms.balls){
+      comboFreq[String(b)]=(comboFreq[String(b)]||0)+1;
+    }
+  }
+  const sortedF=Object.entries(comboFreq).map(([b,c])=>({b:parseInt(b),c})).sort((a,b)=>b.c-a.c);
+  const maxF=sortedF[0].c;
+
+  document.getElementById('statHot').innerHTML=sortedF.slice(0,17).map(({b,c})=>`
+    <div class="score-row">
+      ${ballSm(b)}
+      <div class="score-bar"><div class="score-fill" style="width:${(c/maxF*100).toFixed(1)}%;background:linear-gradient(90deg,#b71c1c,#ff6f00);"></div></div>
+      <span class="pct">${c}x</span>
+    </div>`).join('');
+
+  document.getElementById('statCold').innerHTML=[...sortedF].reverse().slice(0,17).map(({b,c})=>`
+    <div class="score-row">
+      ${ballSm(b)}
+      <div class="score-bar"><div class="score-fill" style="width:${(c/maxF*100).toFixed(1)}%;background:linear-gradient(90deg,#0057b8,#00e5ff);"></div></div>
+      <span class="pct">${c}x</span>
+    </div>`).join('');
+
+  document.getElementById('statPairs').innerHTML=Object.entries(PAIRS).slice(0,20).map(([pair,cnt])=>{
+    const [a,b]=pair.split('-').map(Number);
+    return `<div style="display:inline-flex;align-items:center;gap:3px;background:#0d1525;border-radius:8px;padding:4px 8px;">
+      ${ballSm(a)}${ballSm(b)}<span style="font-size:10px;color:#455a64;margin-left:3px">${cnt}x</span>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MATRIX
+// ═══════════════════════════════════════════════════════════════
+function renderMatrix(){
+  let html='';
+  for(let b=1;b<=35;b++){
+    html+=`<span class="ball ball-sm ${bClass(b)}" style="cursor:pointer" onclick="showMatrix(${b})">${b}</span>`;
+  }
+  document.getElementById('matrixBalls').innerHTML=html;
+  showMatrix(getLastLevel().balls[0]);
+}
+
+function showMatrix(b){
+  const t=TRANS[String(b)]||{};
+  const sorted=Object.entries(t).sort((a,b2)=>b2[1]-a[1]);
+  const total=sorted.reduce((a,[,v])=>a+v,0);
+  document.getElementById('matrixResult').innerHTML=`
+    <div style="font-size:11px;color:#455a64;margin-bottom:10px">Si salió ${ball(b)} → probabilidades históricas (${total} obs.)</div>
+    ${sorted.map(([nb,cnt])=>`
+      <div class="score-row">
+        ${ballSm(parseInt(nb))}
+        <div class="score-bar"><div class="score-fill" style="width:${(cnt/sorted[0][1]*100).toFixed(1)}%;background:linear-gradient(90deg,#004d40,#00e5ff);"></div></div>
+        <span class="pct">${(cnt/total*100).toFixed(1)}%</span>
+      </div>`).join('')}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CUSTOM ANALYZE
+// ═══════════════════════════════════════════════════════════════
+function analyzeCustom(){
+  const balls=[];
+  for(let i=1;i<=5;i++){
+    const v=parseInt(document.getElementById('c'+i).value);
+    if(!v||v<1||v>35){
+      document.getElementById('customResult').innerHTML='<div class="alert alert-warn">Ingresa 5 números válidos entre 1 y 35.</div>';
+      return;
+    }
+    balls.push(v);
+  }
+  if(new Set(balls).size!==5){
+    document.getElementById('customResult').innerHTML='<div class="alert alert-warn">Los 5 números deben ser distintos.</div>';
+    return;
+  }
+  const sorted=balls.sort((a,b)=>a-b);
+  const last=getLastLevel();
+  const scores=computeScores(last.balls);
+  const sortedScores=Object.entries(scores).sort((a,b)=>b[1]-a[1]).map(([b])=>parseInt(b));
+
+  const sum=sorted.reduce((a,b)=>a+b,0);
+  const evens=sorted.filter(b=>b%2===0).length;
+  const myScore=sorted.reduce((a,b)=>a+(scores[b]||0),0)/5;
+  const avgScore=Object.values(scores).reduce((a,b)=>a+b,0)/35;
+  const ranks=sorted.map(b=>({b,rank:sortedScores.indexOf(b)+1}));
+
+  // Historical match
+  const all=getAllLevels();
+  const found=all.findIndex(s=>JSON.stringify(s.balls)===JSON.stringify(sorted));
+
+  document.getElementById('customResult').innerHTML=`
+    <div style="padding:14px;background:#060e1a;border-radius:10px">
+      <div style="margin-bottom:10px">${sorted.map(b=>ball(b)).join('')}</div>
+      <div style="font-size:12px;color:#455a64;margin-bottom:5px">Suma: <b style="color:#00e5ff">${sum}</b> &nbsp;(promedio histórico: ${META.sum_avg.toFixed(0)})</div>
+      <div style="font-size:12px;color:#455a64;margin-bottom:5px">Pares/Impares: <b style="color:#00e5ff">${evens}/${5-evens}</b></div>
+      <div style="font-size:12px;color:#455a64;margin-bottom:5px">Score modelo promedio: <b style="color:${myScore>=avgScore?'#81c784':'#ef9a9a'}">${(myScore*100).toFixed(2)}%</b> vs promedio ${(avgScore*100).toFixed(2)}%</div>
+      <div style="font-size:12px;color:#455a64;margin-bottom:8px">
+        Ranking de cada bolilla: ${ranks.map(({b,rank})=>`${ball(b)} <span style="font-size:10px;color:#455a64">#${rank}</span>`).join(' ')}
+      </div>
+      <div style="font-size:12px;color:#455a64">¿Apareció antes?: <b style="color:${found>=0?'#81c784':'#ef9a9a'}">${found>=0?`Sí, en el nivel ${all[found].nivel}`:'No — combinación nueva'}</b></div>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════
+const tabInited={};
+function showTab(name,el){
+  document.querySelectorAll('[id^="tab-"]').forEach(t=>t.style.display='none');
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+name).style.display='';
+  if(el) el.classList.add('active');
+  if(!tabInited[name]){
+    if(name==='hist'){renderHistorial();}
+    if(name==='stats'){renderStats();}
+    if(name==='matrix'){renderMatrix();}
+    if(name==='add'){renderManualList();}
+    tabInited[name]=true;
+  }
+  if(name==='pred') runPrediction();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+runPrediction();
+renderManualList();
+</script>
+</body>
+</html>
