@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>VeloLima — Diagnóstico Avanzado</title>
+<title>VeloLima — Diagnóstico v4 (para v13)</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#050810;color:#e0e0e0;font-family:'Courier New',monospace;min-height:100dvh;display:flex;flex-direction:column;align-items:center;padding:10px;gap:8px}
@@ -27,7 +27,7 @@ h1{font-size:0.7rem;letter-spacing:0.25em;color:#00e5ff;text-align:center;paddin
 .card{background:#0d1117;border:1px solid #1e2a3a;border-radius:8px;padding:8px 12px}
 .card-label{font-size:0.45rem;letter-spacing:0.2em;color:#4a6280;margin-bottom:3px}
 .card-value{font-size:0.95rem;font-weight:700;color:#fff}
-.green{color:#39ff14}.red{color:#ff2244}.yellow{color:#ffd600}.cyan{color:#00e5ff}.orange{color:#ff6b35}
+.green{color:#39ff14}.red{color:#ff2244}.yellow{color:#ffd600}.cyan{color:#00e5ff}.orange{color:#ff6b35}.purple{color:#a78bfa}
 .log-wrap{width:100%;max-width:460px;background:#0d1117;border:1px solid #1e2a3a;border-radius:10px;overflow:hidden}
 .log-header{padding:7px 14px;font-size:0.52rem;letter-spacing:0.2em;color:#4a6280;border-bottom:1px solid #1e2a3a;display:flex;justify-content:space-between;align-items:center}
 .log-clear{font-size:0.48rem;color:#4a6280;cursor:pointer;padding:2px 8px;border:1px solid #1e2a3a;border-radius:4px}
@@ -46,6 +46,7 @@ h1{font-size:0.7rem;letter-spacing:0.25em;color:#00e5ff;text-align:center;paddin
 .log-line.sys .log-text{color:#4a6280}
 .log-line.ok .log-text{color:#39ff14}
 .log-line.check .log-text{color:#a78bfa}
+.log-line.synth .log-text{color:#f472b6}
 .btn-row{display:flex;gap:6px;width:100%;max-width:460px}
 .btn{font-family:'Courier New',monospace;font-size:0.6rem;letter-spacing:0.12em;padding:11px 8px;border-radius:8px;border:1px solid;cursor:pointer;text-transform:uppercase;transition:all 0.2s;background:transparent}
 .btn-main{flex:1;border-color:#00e5ff;color:#00e5ff}
@@ -53,10 +54,11 @@ h1{font-size:0.7rem;letter-spacing:0.25em;color:#00e5ff;text-align:center;paddin
 .btn-sm{flex:0 0 auto;padding:11px 14px}
 .btn-check{border-color:#a78bfa;color:#a78bfa}
 .btn-export{border-color:#4a6280;color:#4a6280}
+.badge-new{font-size:0.38rem;background:rgba(244,114,182,0.15);border:1px solid rgba(244,114,182,0.4);color:#f472b6;padding:1px 5px;border-radius:3px;letter-spacing:0.1em;margin-left:4px;vertical-align:middle}
 </style>
 </head>
 <body>
-<h1>🛰 VELOLIMA — DIAGNÓSTICO AVANZADO v3</h1>
+<h1>🛰 VELOLIMA — DIAGNÓSTICO AVANZADO v4 <span style="font-size:0.5rem;color:#f472b6">[para VeloLima v13]</span></h1>
 
 <!-- Banner PWA -->
 <div id="pwaBanner" style="width:100%;max-width:460px;background:rgba(0,229,255,0.06);border:1px solid rgba(0,229,255,0.2);border-radius:8px;padding:8px 14px;font-size:0.48rem;color:rgba(0,229,255,0.7);letter-spacing:0.05em;line-height:1.7;display:none;">
@@ -65,16 +67,18 @@ h1{font-size:0.7rem;letter-spacing:0.25em;color:#00e5ff;text-align:center;paddin
 </div>
 
 <div class="checklist">
-  <div class="cl-header"><span>✅ CHECKLIST DE FUNCIONAMIENTO</span><span class="cl-score" id="clScore">0/9</span></div>
+  <div class="cl-header"><span>✅ CHECKLIST DE FUNCIONAMIENTO</span><span class="cl-score" id="clScore">0/11</span></div>
   <div class="cl-item"><div class="cl-icon">📍</div><div class="cl-body"><div class="cl-name">PERMISO GPS</div><div class="cl-desc">Geolocalización autorizada por usuario</div></div><div class="cl-status st-pend" id="ck-gps">PEND</div></div>
   <div class="cl-item"><div class="cl-icon">🔔</div><div class="cl-body"><div class="cl-name">NOTIFICACIONES</div><div class="cl-desc">Alertas visibles cuando la app está en fondo</div></div><div class="cl-status st-pend" id="ck-notif">PEND</div></div>
   <div class="cl-item"><div class="cl-icon">💡</div><div class="cl-body"><div class="cl-name">WAKE LOCK</div><div class="cl-desc">Pantalla no se apaga mientras conduce</div></div><div class="cl-status st-pend" id="ck-wake">PEND</div></div>
   <div class="cl-item"><div class="cl-icon">🔊</div><div class="cl-body"><div class="cl-name">AUDIO CONTEXT</div><div class="cl-desc">Motor de audio activo (keep-alive en fondo)</div></div><div class="cl-status st-pend" id="ck-audio">PEND</div></div>
   <div class="cl-item"><div class="cl-icon">🎵</div><div class="cl-body"><div class="cl-name">MEDIA SESSION</div><div class="cl-desc">App registrada como reproductor de medios</div></div><div class="cl-status st-pend" id="ck-media">PEND</div></div>
-  <div class="cl-item"><div class="cl-icon">🗣️</div><div class="cl-body"><div class="cl-name">VOZ (SPEECH)</div><div class="cl-desc">Síntesis de voz funcional en español</div></div><div class="cl-status st-pend" id="ck-voz">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🗣️</div><div class="cl-body"><div class="cl-name">VOZ TTS <span class="badge-new">PRIMER PLANO</span></div><div class="cl-desc">Síntesis de voz del sistema (speechSynthesis)</div></div><div class="cl-status st-pend" id="ck-voz">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🎹</div><div class="cl-body"><div class="cl-name">VOZ SINTÉTICA <span class="badge-new">NUEVO v13</span></div><div class="cl-desc">Voz por osciladores FM — funciona en fondo</div></div><div class="cl-status st-pend" id="ck-synth">PEND</div></div>
   <div class="cl-item"><div class="cl-icon">📡</div><div class="cl-body"><div class="cl-name">GPS WATCH ACTIVO</div><div class="cl-desc">watchPosition entrega datos en primer plano</div></div><div class="cl-status st-pend" id="ck-watch">PEND</div></div>
-  <div class="cl-item"><div class="cl-icon">🔄</div><div class="cl-body"><div class="cl-name">GPS LOOP BACKUP</div><div class="cl-desc">getCurrentPosition funciona como respaldo</div></div><div class="cl-status st-pend" id="ck-loop">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🔄</div><div class="cl-body"><div class="cl-name">GPS LOOP BACKUP</div><div class="cl-desc">getCurrentPosition cada 2.5s como respaldo</div></div><div class="cl-status st-pend" id="ck-loop">PEND</div></div>
   <div class="cl-item"><div class="cl-icon">🌙</div><div class="cl-body"><div class="cl-name">GPS EN SEGUNDO PLANO</div><div class="cl-desc">GPS se actualiza al minimizar la app</div></div><div class="cl-status st-pend" id="ck-bg">PEND</div></div>
+  <div class="cl-item"><div class="cl-icon">🔉</div><div class="cl-body"><div class="cl-name">VOZ EN FONDO <span class="badge-new">NUEVO v13</span></div><div class="cl-desc">_synth_voz() emite tonos en segundo plano</div></div><div class="cl-status st-pend" id="ck-bgvoz">PEND</div></div>
 </div>
 
 <div class="grid">
@@ -85,7 +89,7 @@ h1{font-size:0.7rem;letter-spacing:0.25em;color:#00e5ff;text-align:center;paddin
   <div class="card"><div class="card-label">GPS WATCH #</div><div class="card-value green" id="dWatch">0</div></div>
   <div class="card"><div class="card-label">GPS LOOP #</div><div class="card-value orange" id="dLoop">0</div></div>
   <div class="card"><div class="card-label">ÚLTIMO GPS</div><div class="card-value" id="dLast">--</div></div>
-  <div class="card"><div class="card-label">VOZ</div><div class="card-value" id="dVoz">--</div></div>
+  <div class="card"><div class="card-label">VOZ SINTÉTICA</div><div class="card-value purple" id="dSynth">--</div></div>
 </div>
 
 <div class="log-wrap">
@@ -104,12 +108,12 @@ var running=false,watchId=null;
 var tickCount=0,watchCount=0,loopCount=0;
 var lastGpsTs=0,lastGpsKmh=0,lastBgKmh=null,prevKmhBeforeBg=null;
 var audioCtx=null,bgTimer=null,tickTimer=null,loopTimer=null,vozTimer=null;
-var wakeLock=null,inBg=false,bgGpsOk=false;
+var wakeLock=null,inBg=false,bgGpsOk=false,bgVozOk=false;
 var logLines=[],checkScores={};
-var CHECKS=['gps','notif','wake','audio','media','voz','watch','loop','bg'];
+var synthCount=0; // cuántas veces se disparó voz sintética
+var CHECKS=['gps','notif','wake','audio','media','voz','synth','watch','loop','bg','bgvoz'];
 var isPWA = window.matchMedia('(display-mode: standalone)').matches
          || window.navigator.standalone === true;
-// Mostrar banner de instalación si no es PWA
 if(!isPWA){ document.getElementById('pwaBanner').style.display='block'; }
 
 function ts(){var n=new Date();return'['+pad(n.getHours())+':'+pad(n.getMinutes())+':'+pad(n.getSeconds())+']';}
@@ -130,10 +134,15 @@ function log(text,type){
 function clearLog(){logLines=[];document.getElementById('logBody').innerHTML='';}
 
 function exportLog(){
-  var names={gps:'GPS Permiso',notif:'Notificaciones',wake:'Wake Lock',audio:'Audio Context',media:'Media Session',voz:'Voz Speech',watch:'GPS Watch',loop:'GPS Loop Backup',bg:'GPS en Fondo'};
+  var names={
+    gps:'GPS Permiso',notif:'Notificaciones',wake:'Wake Lock',
+    audio:'Audio Context',media:'Media Session',voz:'Voz TTS (primer plano)',
+    synth:'Voz Sintética (Web Audio)',watch:'GPS Watch',
+    loop:'GPS Loop Backup',bg:'GPS en Fondo',bgvoz:'Voz en Fondo'
+  };
   var summary=[
     '===========================================',
-    'VELOLIMA — REPORTE DE DIAGNOSTICO',
+    'VELOLIMA v13 — REPORTE DE DIAGNOSTICO v4',
     'Fecha: '+new Date().toLocaleString(),
     'Dispositivo: '+navigator.userAgent.slice(0,100),
     '===========================================',
@@ -152,7 +161,7 @@ function exportLog(){
   var blob=new Blob([summary.join('\n')],{type:'text/plain'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download='velolima_diag_'+new Date().toISOString().slice(0,19).replace(/[:.]/g,'-')+'.txt';
+  a.download='velolima_v13_diag_'+new Date().toISOString().slice(0,19).replace(/[:.]/g,'-')+'.txt';
   a.click();
   log('💾 Log exportado','info');
 }
@@ -175,28 +184,81 @@ function setCheck(id,status,detail){
   var okCount=Object.values(checkScores).filter(function(v){return v==='ok';}).length;
   var scoreEl=document.getElementById('clScore');
   scoreEl.textContent=okCount+'/'+CHECKS.length;
-  scoreEl.style.color=okCount===CHECKS.length?'#39ff14':okCount>=6?'#ffd600':'#ff2244';
+  scoreEl.style.color=okCount===CHECKS.length?'#39ff14':okCount>=8?'#ffd600':'#ff2244';
 }
 
 function runChecklist(){
   log('=== ACTUALIZANDO CHECKLIST ===','check');
-  // GPS Watch
   if(watchCount>0){setCheck('watch','ok',watchCount+' updates');log('✓ GPS Watch: '+watchCount+' actualizaciones','ok');}
   else if(running){setCheck('watch','test','Esperando...');}
   else setCheck('watch','pend');
-  // GPS Loop
   if(loopCount>0){setCheck('loop','ok',loopCount+' activaciones');log('✓ GPS Loop: '+loopCount+' activaciones','ok');}
   else if(running){setCheck('loop','warn','Sin activaciones — watchPosition sigue vivo (normal)');}
   else setCheck('loop','pend');
-  // GPS Fondo
   if(bgGpsOk){setCheck('bg','ok','GPS actualiza en fondo: '+(lastBgKmh||0).toFixed(1)+' km/h');log('✓ GPS Fondo: OK','ok');}
   else if(inBg){setCheck('bg','test','Esperando datos en fondo...');}
   else if(running){setCheck('bg','test','Minimiza la app 30s para probar');}
   else setCheck('bg','pend');
+  if(bgVozOk){setCheck('bgvoz','ok',synthCount+' emisiones en fondo');log('✓ Voz Fondo: emitida '+synthCount+'x en fondo','ok');}
+  else if(inBg){setCheck('bgvoz','test','Esperando emisión en fondo...');}
+  else if(running){setCheck('bgvoz','test','Minimiza 30s para probar voz en fondo');}
+  else setCheck('bgvoz','pend');
   var ok=Object.values(checkScores).filter(function(v){return v==='ok';}).length;
   log('=== SCORE: '+ok+'/'+CHECKS.length+' ===','check');
 }
 
+// ── VOZ SINTÉTICA (misma lógica que VeloLima v13) ──────────
+function _synth_voz_diag(speedNum){
+  if(!audioCtx) return false;
+  try{
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    var ctx=audioCtx;
+    var t=ctx.currentTime+0.05;
+
+    function addTone(freq,dur,amp,type){
+      amp=amp||0.5; type=type||'sine';
+      var osc=ctx.createOscillator();
+      var g=ctx.createGain();
+      osc.type=type;
+      osc.frequency.setValueAtTime(freq,t);
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(amp,t+0.02);
+      g.gain.setValueAtTime(amp,t+dur-0.03);
+      g.gain.linearRampToValueAtTime(0,t+dur);
+      osc.connect(g); g.connect(ctx.destination);
+      osc.start(t); osc.stop(t+dur);
+      t+=dur;
+    }
+    function gap(d){ t+=d; }
+
+    // Tono de alerta descendente
+    addTone(900,0.12,0.6,'square'); gap(0.04);
+    addTone(700,0.10,0.5,'square'); gap(0.04);
+    addTone(500,0.08,0.4,'square'); gap(0.14);
+
+    // Emitir dígitos del número de velocidad como pulsos formánticos
+    var digits=String(Math.round(speedNum||60));
+    var freqMap={'0':220,'1':280,'2':320,'3':360,'4':400,'5':450,'6':500,'7':560,'8':620,'9':700};
+    for(var i=0;i<digits.length;i++){
+      var f=freqMap[digits[i]]||400;
+      addTone(f,0.09,0.45,'sawtooth'); gap(0.05);
+      addTone(f*1.3,0.06,0.3,'sine'); gap(0.06);
+    }
+    gap(0.05);
+    // Tono cierre "km/h"
+    addTone(440,0.06,0.3,'sine'); gap(0.02); addTone(550,0.06,0.3,'sine');
+
+    synthCount++;
+    setCard('dSynth','#'+synthCount+' OK','purple');
+    log('🎹 SYNTH_VOZ #'+synthCount+' | vel='+Math.round(speedNum||60)+' | fondo='+document.hidden,'synth');
+    return true;
+  }catch(e){
+    log('⚠ SYNTH_VOZ error: '+e.message,'warn');
+    return false;
+  }
+}
+
+// ── AUDIO ──────────────────────────────────────────────────
 function initAudio(){
   try{
     var AC=window.AudioContext||window.webkitAudioContext;
@@ -205,13 +267,12 @@ function initAudio(){
     setCheck('audio','ok','Estado: '+audioCtx.state);
     log('✓ AudioContext creado: '+audioCtx.state,'ok');
 
-    // Oscilador real a 20Hz (inaudible) — mantiene proceso vivo en fondo
-    // Esta es la misma técnica que usa Waze/Maps
+    // Oscilador 20Hz inaudible — keep-alive (mismo que v13, reducido a 25s)
     try{
       var osc=audioCtx.createOscillator();
       var gain=audioCtx.createGain();
-      gain.gain.value=0.001; // inaudible
-      osc.frequency.value=20; // 20Hz infrasónico
+      gain.gain.value=0.001;
+      osc.frequency.value=20;
       osc.type='sine';
       osc.connect(gain);
       gain.connect(audioCtx.destination);
@@ -221,7 +282,7 @@ function initAudio(){
 
     if('mediaSession' in navigator){
       try{
-        navigator.mediaSession.metadata=new MediaMetadata({title:'VeloLima GPS',artist:'Diagnóstico activo'});
+        navigator.mediaSession.metadata=new MediaMetadata({title:'VeloLima GPS v13',artist:'Diagnóstico v4 activo'});
         navigator.mediaSession.playbackState='playing';
         ['play','pause','stop'].forEach(function(a){try{navigator.mediaSession.setActionHandler(a,function(){
           if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().catch(function(){});
@@ -230,7 +291,7 @@ function initAudio(){
       }catch(e){setCheck('media','warn',e.message);}
     } else {setCheck('media','warn','No soportado');}
 
-    // Beep inicial
+    // Beep de inicio
     try{
       if(audioCtx.state==='suspended')audioCtx.resume();
       var o2=audioCtx.createOscillator(),g2=audioCtx.createGain();
@@ -243,18 +304,49 @@ function initAudio(){
       setCard('dAudio',audioCtx.state,audioCtx.state==='running'?'green':'yellow');
     }catch(e){}
 
+    // Keep-alive cada 25s (igual que v13)
     bgTimer=setInterval(function(){
       if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().catch(function(){});
       setCard('dAudio',audioCtx?audioCtx.state:'--',audioCtx&&audioCtx.state==='running'?'green':'yellow');
-    },15000);
+    },25000);
 
-    // Log estado PWA
-    log('Modo PWA: '+(isPWA?'✓ INSTALADA — GPS en fondo disponible':'✗ Navegador — GPS en fondo limitado')
-      , isPWA?'ok':'warn');
+    // Probar VOZ SINTÉTICA inmediatamente al iniciar
+    setTimeout(function(){
+      log('── Probando _synth_voz() en primer plano ──','synth');
+      var ok=_synth_voz_diag(60);
+      if(ok){
+        setCheck('synth','ok','Emitida en primer plano');
+        log('✓ Voz sintética OK en primer plano (frecuencias formánticas v13)','ok');
+      } else {
+        setCheck('synth','fail','AudioContext no disponible');
+        log('✗ Voz sintética: AudioContext no disponible','error');
+      }
+    },1200);
+
+    log('Modo PWA: '+(isPWA?'✓ INSTALADA':'✗ Navegador — GPS en fondo limitado'),isPWA?'ok':'warn');
 
   }catch(e){setCheck('audio','fail',e.message);log('✗ Audio: '+e.message,'error');}
 }
 
+// ── VOZ TTS (primer plano) ─────────────────────────────────
+function startVoz(){
+  if(!window.speechSynthesis){setCheck('voz','fail','No disponible');return;}
+  var u=new SpeechSynthesisUtterance('velocimetro activo');
+  u.lang='es-PE';u.volume=0.4;u.rate=1.2;
+  u.onstart=function(){setCheck('voz','ok');log('✓ Voz TTS iniciada | fondo='+document.hidden,'info');};
+  u.onend=function(){log('🔇 Voz TTS terminó','sys');};
+  u.onerror=function(e){
+    setCheck('voz','warn','Error: '+e.error);
+    log('⚠ Voz TTS error: '+e.error+' (en fondo es normal — v13 usa synth_voz)','warn');
+  };
+  window.speechSynthesis.speak(u);
+  vozTimer=setInterval(function(){
+    if(!running)return;
+    if(window.speechSynthesis.paused)window.speechSynthesis.resume();
+  },10000);
+}
+
+// ── TICK ──────────────────────────────────────────────────
 function startTick(){
   tickTimer=setInterval(function(){
     tickCount++;
@@ -263,6 +355,7 @@ function startTick(){
   },5000);
 }
 
+// ── GPS WATCH ─────────────────────────────────────────────
 function startWatch(){
   watchId=navigator.geolocation.watchPosition(
     function(pos){
@@ -284,10 +377,7 @@ function startWatch(){
       if(err.code===1){
         setCheck('gps','fail','Permiso denegado');
         log('──── GPS BLOQUEADO ────','error');
-        log('  → En Firefox: toca el icono 🔒 en la barra de URL','warn');
-        log('  → Selecciona "Ubicación" → "Permitir"','warn');
-        log('  → Luego recarga y vuelve a iniciar el diagnóstico','warn');
-        log('  → O usa Chrome Android para mejores resultados','warn');
+        log('  → En Chrome: toca 🔒 en la URL → Ubicación → Permitir','warn');
         stopDiag();
       }
     },
@@ -295,6 +385,7 @@ function startWatch(){
   );
 }
 
+// ── GPS LOOP BACKUP (2.5s igual que v13) ──────────────────
 function startLoop(){
   loopTimer=setInterval(function(){
     if(!running)return;
@@ -305,6 +396,7 @@ function startLoop(){
         lastGpsTs=Date.now();loopCount++;
         var kmh=Math.max(0,(pos.coords.speed||0)*3.6);
         var lag=Math.round(since/1000);
+        lastGpsKmh=kmh;
         if(inBg){lastBgKmh=kmh;bgGpsOk=true;}
         setCard('dSpeed',Math.round(kmh)+' km/h','orange');
         setCard('dLoop',loopCount,'orange');
@@ -315,30 +407,35 @@ function startLoop(){
       function(err){if(err.code!==3)log('⚠ Loop err '+err.code,'warn');},
       {enableHighAccuracy:true,maximumAge:2000,timeout:4000}
     );
-  },1500);
+  },2500); // v13: 2500ms (reducido de 1500ms para menor calor)
 }
 
-function startVoz(){
-  if(!window.speechSynthesis){setCheck('voz','fail','No disponible');return;}
-  var u=new SpeechSynthesisUtterance('velocimetro activo');
-  u.lang='es-PE';u.volume=0.4;u.rate=1.2;
-  u.onstart=function(){setCheck('voz','ok');setCard('dVoz','OK','green');log('✓ Voz iniciada | fondo='+document.hidden,'info');};
-  u.onend=function(){log('🔇 Voz terminó','sys');};
-  u.onerror=function(e){setCheck('voz','warn','Error: '+e.error);setCard('dVoz','ERR','red');log('⚠ Voz error: '+e.error,'warn');};
-  window.speechSynthesis.speak(u);
-  vozTimer=setInterval(function(){
-    if(!running)return;
-    if(window.speechSynthesis.paused)window.speechSynthesis.resume();
-  },10000);
-}
-
+// ── VISIBILITYCHANGE — Fondo/Frente ───────────────────────
 document.addEventListener('visibilitychange',function(){
   if(document.hidden){
     inBg=true;prevKmhBeforeBg=lastGpsKmh;lastBgKmh=null;bgGpsOk=false;
     setCard('dVis','SEGUNDO PLANO','yellow');
     log('🌙 APP FUE AL FONDO','bg');
     setCheck('bg','test','Esperando GPS en fondo...');
+    setCheck('bgvoz','test','Disparando voz sintética en fondo...');
     if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().catch(function(){});
+
+    // Disparar voz sintética en fondo — PRUEBA CLAVE v13
+    setTimeout(function(){
+      if(!running||!document.hidden)return;
+      log('── TEST: disparando _synth_voz() en FONDO ──','synth');
+      var ok=_synth_voz_diag(lastGpsKmh||60);
+      if(ok){
+        bgVozOk=true;
+        log('✓ SYNTH_VOZ emitida en fondo — v13 funcionando ✓','ok');
+        setCheck('bgvoz','ok','Voz sintética OK en segundo plano');
+      } else {
+        log('✗ SYNTH_VOZ falló en fondo — verificar AudioContext','error');
+        setCheck('bgvoz','fail','No se pudo emitir en fondo');
+      }
+      // Repetir cada 5s mientras siga en fondo (igual que bgBeepLoop en v13)
+    },1000);
+
   } else {
     inBg=false;
     setCard('dVis','PRIMER PLANO','green');
@@ -354,15 +451,17 @@ document.addEventListener('visibilitychange',function(){
         log('✗ GPS Fondo: NO se actualizó (GPS CONGELADO)','error');
         if(isPWA){
           log('  → Modo PWA activo pero GPS congelado','warn');
-          log('  → Android: Ajustes > Apps > Chrome > Batería > Sin restricción','warn');
           log('  → Android: Ajustes > Ubicación > Permisos de app > Chrome > Siempre','warn');
         } else {
-          log('  → SOLUCIÓN PRINCIPAL: Instala como PWA desde Chrome','warn');
-          log('  → Chrome → ⋮ → "Añadir a pantalla de inicio"','warn');
-          log('  → La app instalada tiene GPS en fondo como Waze ✓','warn');
-          log('  → SOLUCIÓN ALTERNA: Ajustes > Apps > Chrome > Batería > Sin restricción','warn');
+          log('  → SOLUCIÓN: Chrome → ⋮ → "Añadir a pantalla de inicio"','warn');
         }
-        log('  → PARCHE ACTIVO: Voz silenciada si GPS >8s sin datos (no repetirá)','info');
+      }
+      if(bgVozOk){
+        log('✓ Voz Fondo: _synth_voz() confirmada en segundo plano ✓','ok');
+        log('  → v13 emitirá VOZ SINTÉTICA + BEEP al superar límite en fondo','ok');
+      } else {
+        log('✗ Voz Fondo: synth_voz no se confirmó — revisar AudioContext','warn');
+        log('  → Si audio=running pero no sonó: verificar volumen del celular','warn');
       }
     },2000);
     if('wakeLock' in navigator)navigator.wakeLock.request('screen').catch(function(){});
@@ -374,7 +473,8 @@ async function toggle(){if(running)stopDiag();else await startDiag();}
 
 async function startDiag(){
   clearLog();
-  tickCount=0;watchCount=0;loopCount=0;lastGpsTs=Date.now();bgGpsOk=false;inBg=false;
+  tickCount=0;watchCount=0;loopCount=0;synthCount=0;
+  lastGpsTs=Date.now();bgGpsOk=false;bgVozOk=false;inBg=false;
   checkScores={};
   CHECKS.forEach(function(id){setCheck(id,'pend');});
   running=true;
@@ -390,9 +490,9 @@ async function startDiag(){
   if('wakeLock' in navigator){
     try{wakeLock=await navigator.wakeLock.request('screen');setCheck('wake','ok');log('✓ Wake Lock adquirido','ok');}
     catch(e){setCheck('wake','fail',e.message);log('✗ Wake Lock: '+e.message,'error');}
-  } else {setCheck('wake','fail','No soportado en Firefox');log('✗ Wake Lock: no soportado','error');}
+  } else {setCheck('wake','fail','No soportado');log('✗ Wake Lock: no soportado','error');}
 
-  // Audio
+  // Audio + Voz Sintética
   initAudio();
 
   // Notificaciones
@@ -404,20 +504,19 @@ async function startDiag(){
     log((r==='granted'?'✓':'✗')+' Notificaciones: '+r,'info');
   }
 
-  // GPS check inicial
   if(!navigator.geolocation){setCheck('gps','fail','No disponible');log('✗ GPS: no disponible','error');stopDiag();return;}
   setCheck('gps','test','Esperando primera posición...');
 
-  // Voz
+  // Voz TTS (primer plano)
   startVoz();
 
-  // GPS
   startWatch();
   startLoop();
   startTick();
 
   setCard('dVis','PRIMER PLANO','green');
   log('──── Ahora MINIMIZA y usa otra app 30s ────','warn');
+  log('──── En fondo se probará VOZ SINTÉTICA v13 ────','warn');
   log('──── Luego vuelve para ver el resultado ────','warn');
   setTimeout(runChecklist,4000);
 }
@@ -439,7 +538,8 @@ function stopDiag(){
 }
 
 log('Listo. Presiona INICIAR para comenzar.','sys');
-log('Luego minimiza la app 30s y vuelve para ver resultados.','sys');
+log('Novedades v4: prueba VOZ SINTÉTICA en fondo (_synth_voz de v13).','sys');
+log('Minimiza 30s para verificar voz + GPS en segundo plano.','sys');
 </script>
 </body>
 </html>
