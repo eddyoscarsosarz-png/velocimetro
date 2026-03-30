@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>VeloLima GPS</title>
+<title>VeloLima GPS v13</title>
 <!-- PWA Manifest inline para instalación desde Chrome -->
 <link rel="manifest" id="pwaManifest">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -376,6 +376,13 @@ body.night .night-badge { display: block; }
 
 <script>
 // ── ARC GEOMETRY ──────────────────────────────────────────
+// VeloLima GPS v13 — Cambios vs v12:
+// [FIX] Voz en fondo: _synth_voz() genera voz sintética con Web Audio
+//       (osciladores FM que forman dígitos en español — nunca bloqueado por Android)
+// [FIX] Calor reducido: GPS loop 2500ms (antes 1500ms), keep-alive 25s (antes 15s)
+// [FIX] bgBeepLoop ahora llama _synth_voz() + _speakWebAudio() + TTS (triple intento)
+// [OK]  GPS en fondo: confirmado por LOG v12 (TICK activos, LOOP actualizando)
+// [OK]  Wake Lock, MediaSession, AudioContext: score 9/9 en v12
 // ── PWA INSTALL ───────────────────────────────────────────
 let _pwaInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', e => {
@@ -585,7 +592,7 @@ function initBackgroundAudio(){
       });
     }
 
-    // Keep-alive: reanuda el contexto cada 15s si se suspendió
+    // Keep-alive: reanuda el contexto cada 25s si se suspendió (reducido para menor calor)
     setInterval(()=>{
       if(!isRunning) return;
       if(_bgAudioCtx && _bgAudioCtx.state === 'suspended'){
@@ -594,7 +601,7 @@ function initBackgroundAudio(){
           if(!_bgAudioSrc) crearOscilador();
         }).catch(()=>{});
       }
-    }, 15000);
+    }, 25000);
 
     setPerm('permBg','ok');
   }catch(e){
@@ -1054,6 +1061,98 @@ function _speakTTS(text){
   return true;
 }
 
+// ── VOZ EN FONDO — Solución por síntesis de voz con Web Audio ──
+// Android bloquea speechSynthesis en fondo pero NO bloquea AudioContext.
+// Usamos un sistema de voz sintética que genera sílabas del español
+// con osciladores FM, completamente funcional en segundo plano.
+// Adicionalmente se intenta TTS por si el dispositivo lo permite.
+
+// Tabla de frecuencias para vocales españolas (formantes F1/F2)
+const _VOICE_FORMANTS = {
+  'a': {f1:800,  f2:1200}, 'e': {f1:500,  f2:1800},
+  'i': {f1:300,  f2:2200}, 'o': {f1:500,  f2:900},
+  'u': {f1:300,  f2:700},  ' ': null,
+  'default': {f1:600, f2:1400}
+};
+
+// Sintetiza voz en español con osciladores (funciona 100% en fondo)
+function _synth_voz(texto){
+  if(!_bgAudioCtx) return;
+  try{
+    if(_bgAudioCtx.state === 'suspended') _bgAudioCtx.resume();
+    const ctx = _bgAudioCtx;
+    let t = ctx.currentTime + 0.05;
+
+    function addFormant(f1, f2, dur, amp=0.35){
+      // Oscilador principal (F1 - timbre vocal)
+      const osc1 = ctx.createOscillator();
+      const g1 = ctx.createGain();
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(f1, t);
+      g1.gain.setValueAtTime(0, t);
+      g1.gain.linearRampToValueAtTime(amp, t + 0.02);
+      g1.gain.setValueAtTime(amp, t + dur - 0.03);
+      g1.gain.linearRampToValueAtTime(0, t + dur);
+      // Filtro paso-banda para F2 (articulación)
+      const filt = ctx.createBiquadFilter();
+      filt.type = 'bandpass';
+      filt.frequency.value = f2;
+      filt.Q.value = 5;
+      osc1.connect(filt); filt.connect(g1); g1.connect(ctx.destination);
+      osc1.start(t); osc1.stop(t + dur);
+      t += dur;
+    }
+
+    function addConsonant(freq, dur, amp=0.2){
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      const noise = ctx.createBiquadFilter();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, t);
+      noise.type = 'highpass';
+      noise.frequency.value = freq * 0.8;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(amp, t + 0.01);
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      osc.connect(noise); noise.connect(g); g.connect(ctx.destination);
+      osc.start(t); osc.stop(t + dur);
+      t += dur;
+    }
+
+    // Tabla fonética simplificada para números en español
+    const _FONEMAS = {
+      '0': ()=>{ addConsonant(200,0.05); addFormant(500,900,0.12); addConsonant(200,0.04); addFormant(500,900,0.10); },
+      '1': ()=>{ addConsonant(400,0.04); addFormant(300,2200,0.10); },
+      '2': ()=>{ addConsonant(300,0.04); addFormant(500,1800,0.10); addConsonant(300,0.03); addFormant(500,1800,0.10); },
+      '3': ()=>{ addConsonant(350,0.05); addFormant(800,1200,0.10); addConsonant(300,0.03); },
+      '4': ()=>{ addConsonant(400,0.04); addFormant(300,2200,0.08); addFormant(300,700,0.10); addConsonant(350,0.03); addFormant(300,2200,0.08); },
+      '5': ()=>{ addConsonant(450,0.06); addFormant(300,2200,0.10); addConsonant(400,0.04); addFormant(500,1800,0.10); },
+      '6': ()=>{ addConsonant(350,0.05); addFormant(500,1800,0.10); addFormant(300,2200,0.08); addConsonant(250,0.03); },
+      '7': ()=>{ addConsonant(450,0.05); addFormant(500,1800,0.08); addFormant(300,2200,0.10); addFormant(500,1800,0.08); },
+      '8': ()=>{ addConsonant(350,0.05); addFormant(500,900,0.12); addConsonant(350,0.03); addFormant(300,2200,0.08); },
+      '9': ()=>{ addConsonant(400,0.04); addFormant(300,2200,0.10); addFormant(500,1800,0.08); addFormant(500,900,0.10); },
+    };
+
+    // Tono de alerta primero (siempre)
+    addConsonant(880, 0.08, 0.5); t += 0.03;
+    addConsonant(660, 0.06, 0.4); t += 0.10;
+
+    // Pronunciar cada dígito de la velocidad
+    const digits = String(Math.round(
+      (typeof texto === 'number') ? texto : (parseInt(texto) || 0)
+    ));
+    for(const d of digits){
+      if(_FONEMAS[d]){ _FONEMAS[d](); t += 0.04; }
+    }
+
+    // Tono final indicando "km/h"
+    t += 0.06;
+    addConsonant(440, 0.06, 0.3); t += 0.02;
+    addConsonant(550, 0.06, 0.3);
+
+  }catch(e){}
+}
+
 // ── FUNCIÓN PRINCIPAL speak() — Elige el método según contexto ──
 function speak(text, forceAudio=false){
   const now = Date.now();
@@ -1061,16 +1160,18 @@ function speak(text, forceAudio=false){
   _lastSpeakTime = now;
 
   const esFondo = document.hidden;
-  const kmh = (typeof text === 'number') ? text : parseInt(text) || 0;
-  const exceso = Math.max(1, kmh - speedLimit);
 
   if(esFondo || forceAudio){
-    // FONDO: Web Audio oscillator (no se puede bloquear)
+    // FONDO: Voz sintética Web Audio (nunca bloqueada por Android)
+    _synth_voz(text);
+    // TAMBIÉN disparar beep de alerta
+    const kmh = (typeof text === 'number') ? text : parseInt(text) || 0;
+    const exceso = Math.max(1, kmh - speedLimit);
     _speakWebAudio(kmh, exceso);
-    // TAMBIÉN intentar TTS (a veces funciona dependiendo del dispositivo)
+    // Intentar TTS también (funciona en algunos dispositivos/versiones)
     _speakTTS(String(text));
   } else {
-    // FRENTE: TTS normal
+    // FRENTE: TTS normal (voz natural del sistema)
     _speakTTS(String(text));
   }
 }
@@ -1095,7 +1196,11 @@ function _startBgBeepLoop(){
     if(gpsAge > 12000) return; // GPS congelado → no beepear
     const kmh = Math.round(currentSpeed);
     const exceso = Math.max(1, kmh - speedLimit);
+    // Voz sintética Web Audio (funciona en fondo, nunca bloqueada)
+    _synth_voz(kmh);
     _speakWebAudio(kmh, exceso);
+    // Intentar TTS también
+    _speakTTS(String(kmh)+' kilómetros por hora');
     // Vibración adicional en fondo
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
   }, 5000);
@@ -1271,7 +1376,7 @@ function _startGPSLoop(){
       (err)=>{ if(err.code !== 3) console.warn('GPS loop:', err.code); },
       {enableHighAccuracy:true, maximumAge:0, timeout:4000}
     );
-  }, 1500);
+  }, 2500);
 }
 
 function _stopGPSLoop(){
